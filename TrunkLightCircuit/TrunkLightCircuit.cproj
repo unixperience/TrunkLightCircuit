@@ -134,6 +134,12 @@
     <Compile Include="avr_timers.h">
       <SubType>compile</SubType>
     </Compile>
+    <Compile Include="avr_uart.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="avr_uart.h">
+      <SubType>compile</SubType>
+    </Compile>
     <Compile Include="global.h">
       <SubType>compile</SubType>
     </Compile>
