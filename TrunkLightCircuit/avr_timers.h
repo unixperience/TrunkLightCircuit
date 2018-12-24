@@ -10,14 +10,16 @@
 #ifndef AVR_TIMERS_H_
 #define AVR_TIMERS_H_
 
-enum _eTIMER
+#include "global.h"
+
+typedef enum _eTIMER
 {
-    etimer_0;
-    etimer_1;
-    etimer_2;
+    etimer_0,
+    etimer_1,
+    etimer_2,
 }eTIMER;
 
-enum _ePWM_OUTPUT
+typedef enum _ePWM_OUTPUT
 {
     epwm_1a,
     epwm_1b,
@@ -25,7 +27,7 @@ enum _ePWM_OUTPUT
 }ePWM_OUTPUT;
 
 //NOT ALL VALUES ARE VALID FOR ALL TIMERS
-enum _eTimerPrescaleValues
+typedef enum _eTimerPrescaleValues
 {
     disabled_default,
     clk_over_1,

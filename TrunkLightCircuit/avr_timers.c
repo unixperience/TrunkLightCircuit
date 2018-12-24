@@ -1,6 +1,8 @@
 #include "global.h"
 #include "avr_timers.h"
 
+#define ONE_PERCENT_OF_8_BIT (256.0 / 100.0)
+
 //16bit reads -> read low -> read high
 //16bit writes -> write high -> write low
 void timers_init(void)
@@ -75,7 +77,7 @@ void timer2_init(void)
     TCCR2 = 0x00;
     
     //sets in CTC clear on compare mode
-    TCCR2 |= BIT_SET(WGM21);
+    BIT_SET(TCCR2, WGM21);
     
     //sets prescaler to 64 F_CPU = 16MHz
     // 16MHz / (8_bit_max * prescaler) = 16MHz / (256 * 64) = 488.3Hz
@@ -88,7 +90,7 @@ void timer2_init(void)
     OCR2 = 0xFF;
     
     //enable output compare interrupt timer2
-    TIMSK |= BIT_SET(OCIE2);
+    BIT_SET(TIMSK, OCIE2);
     sei();
 }
 
@@ -98,6 +100,7 @@ void timers_default(void)
     timer1_default();
     timer2_default();
 }
+
 void timer0_default(void)
 {
     //clear configuration registers
@@ -107,7 +110,7 @@ void timer0_default(void)
     BIT_CLEAR(TIMSK, TOIE0);    //overflow
     
     //clear flag generation
-    BIT_CLEAR(TIFR, TOV0)       //overflow
+    BIT_CLEAR(TIFR, TOV0);      //overflow
 }
 
 void timer1_default(void)
@@ -123,10 +126,10 @@ void timer1_default(void)
     BIT_CLEAR(TIMSK, TICIE1);   //input capture
     
     //clear flag generation
-    BIT_CLEAR(TIFR, TOV1)       //overflow
-    BIT_CLEAR(TIFR, OCF1B)      //output b compare match
-    BIT_CLEAR(TIFR, OCF1A)      //output a compare match
-    BIT_CLEAR(TIFR, ICF1)       //input capture
+    BIT_CLEAR(TIFR, TOV1);      //overflow
+    BIT_CLEAR(TIFR, OCF1B);     //output b compare match
+    BIT_CLEAR(TIFR, OCF1A);     //output a compare match
+    BIT_CLEAR(TIFR, ICF1);      //input capture
     
     //compare value 16 bit registers
     OCR1A = 0x0000;
@@ -145,7 +148,7 @@ void timer2_default(void)
     BIT_CLEAR(TIMSK, OCIE2);    //output compare match
     
     //clear flag generation
-    BIT_CLEAR(TIFR, TOV2)       //overflow
+    BIT_CLEAR(TIFR, TOV2);      //overflow
     BIT_CLEAR(TIMSK, OCF2);     //output compare match
     
     //compare value
@@ -217,7 +220,7 @@ void set_freq2(uint8_t unscaled_0_255)
 /************************************************************************/
 #define ONE_PERCENT_OF_8_BIT (256.0 / 100.0)
 
-bool SetTimerPrescale(eTIMER timer, eTimerPrescaleValues prescale)
+bool SetTimerPrescale(eTIMER timer, eTimerPrescaleValues value)
 {
     bool ret_value = true;
 

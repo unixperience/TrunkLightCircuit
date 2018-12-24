@@ -11,27 +11,27 @@
 
 #include "global.h"
 
-enum eUARTCharSize
+typedef enum _eUARTCharSize
 {
     charlen5,
     charlen6,
     charlen7,
     charlen8_default,
     charlen9,
-};
+}eUARTCharSize;
 
-enum eUartParityMode
+typedef enum _eUartParityMode
 {
     disabled_default,
     enabled_even_parity,
     enabled_odd_parity,
-};
+}eUartParityMode;
 
-enum eUARTStopBits
+typedef enum _eUARTStopBits
 {
     one_default,
     two,
-};
+}eUARTStopBits;
 
 /** The values for baud rate calculation are based on the clock speed F_CPU
     As of now this code only accommodates three clock speeds. These settings
@@ -43,23 +43,26 @@ enum eUARTStopBits
     
     Note that 1MHz speed only supports 9600, 19200 Buad_rates
 */
-enum eUartBaudRate
+typedef enum _eUartBaudRate
 {
     b9600_default,
     b19200,
     b115200,    /// this speed is only valid above 1.8432MHz
     b250000,    /// this speed is only valid 2MHz
     b1000000,  /// this speed is only valid above 8MHz
-};
+}eUartBaudRate;
 
 //configuration
-void uart_default(void)
+void uart_default(void);
 void uart_SetCharWidth(eUARTCharSize value);
 void uart_SetParity(eUartParityMode value);
-void uart_SetStopBit1Not2(eUARTStopBits value);
+void uart_SetStopBits(eUARTStopBits value);
 bool uart_SetBaudRate(eUartBaudRate value);
 
 //use
-void uart_enable(void);
+void uart_enable(eUartBaudRate baud_rate,
+                 eUARTCharSize char_size,
+                 eUARTStopBits stop_bits,
+                 eUartParityMode parity);
 void uart_disable(void);
 #endif /* AVR_UART_H_ */

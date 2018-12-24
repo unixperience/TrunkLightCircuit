@@ -7,8 +7,8 @@
 #include "avr_uart.h"
 #include <util/atomic.h>
 
-#define UCSRC_CLEAR_VAL = 0x80  /// This clears register UCSRC, all writes to the reg must have
-                                /// URSEL bit (MSB 7) set since this register is shared with UBRRH
+#define UCSRC_CLEAR_VAL 0x80  /// This clears register UCSRC, all writes to the reg must have
+                              /// URSEL bit (MSB 7) set since this register is shared with UBRRH
 
 /** Private function _uart_ReadUCSRC reads the UART Control Status Register C
     this register has a special read sequence, so it is put into a helper function
@@ -72,7 +72,7 @@ void USART_Transmit( unsigned char data )
 // 
 
 //TXC must be cleared before each transmission (before udr is written)
-'//RXC checks for existing Rx data in the receive buffer
+//RXC checks for existing Rx data in the receive buffer
 //when you write to UCSRC you must set URSEL bit (MSB) since i/o location is shared by
 //  UBRRH and UCSRC
 // anytime you write to UCSRA register you must set UDRE bit low
@@ -147,7 +147,7 @@ void uart_SetParity(eUartParityMode value)
         BIT_SET(ucsrc_val   , UPM0);
     }
     
-    USCRC = ucsrc_val;
+    UCSRC = ucsrc_val;
 }
 
 void uart_SetStopBit1Not2(eUARTStopBits value)
@@ -168,14 +168,14 @@ void uart_SetStopBit1Not2(eUARTStopBits value)
         BIT_SET(ucsrc_val   ,USBS);
     }     
     
-    USCRC = ucsrc_val;   
+    UCSRC = ucsrc_val;   
 }
 
 bool uart_SetBaudRate(eUartBaudRate value)
 {
     BIT_SET(UCSRA, U2X);    //enables double data rate
     
-#if  F_CPU==16000000UL
+#if (F_CPU==16000000UL)
     if (value == b1000000)
     {
         UBRRH = 0x00;
@@ -203,7 +203,7 @@ bool uart_SetBaudRate(eUartBaudRate value)
     }
     
     return true;
-#else if F_CPU==8000000UL
+#elif F_CPU==8000000UL
     if (value == b1000000)
     {
         UBRRH = 0x00;
@@ -231,7 +231,7 @@ bool uart_SetBaudRate(eUartBaudRate value)
     }
     
     return true;
-#else if F_CPU==1000000UL
+#elif F_CPU==1000000UL
     if (value == b19200)
     {
         UBRRH = 0x00;
@@ -244,9 +244,11 @@ bool uart_SetBaudRate(eUartBaudRate value)
     }     
     
     return true;
-#else 
+#else //if ((F_CPU != 16000000UL) &&  (F_CPU != 8000000UL) &&  (F_CPU != 1000000UL) )
     return false;
-}    
+#endif
+} 
+   
 void uart_enable(eUartBaudRate baud_rate,
                  eUARTCharSize char_size,
                  eUARTStopBits stop_bits,

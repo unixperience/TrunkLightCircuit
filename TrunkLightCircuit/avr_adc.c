@@ -2,12 +2,13 @@
  * avr_adc.c
  *
  * Created: 12/19/2018 12:20:38 PM
- *  Author: Andrew
+ *  Author: Andrew Asuelime
  */ 
 
+#include "avr_adc.h"
 #include <avr/io.h>
 
-void adc_default(void)
+void adc_reset(void)
 {
     //reset to initial values
     ADMUX   = 0x00;
@@ -23,7 +24,7 @@ void adc_enable_interrupt_on_conversion(void)
 
 void adc_disable_interrupt_on_conversion(void)
 {
-    //enables interrupt
+    //disables interrupt
      BIT_CLEAR(ADCSRA,ADIE);
 }
 
@@ -101,18 +102,19 @@ void adc_select_ref(eADCReference value)
 bool adc_start_conversion(bool block_till_complete)
 {
     //if the adc is not enabled return false
-    if (!(ADCSRA & BIT_MSK(ADEN)))
-    return false;
+    if (!BIT_GET(ADCSRA, ADEN))
+    {
+        return false;
+    }        
     
-    ADCSRA |= BIT_SET(ADSC);
-    
-    if ((ADCSRA & BIT_MSK(ADFR)))
+    //set start conversion bit
+    BIT_SET(ADCSRA, ADSC);
     
     //if we are blocking AND we are NOT in free running mode
-    if (block_till_complete && !(ADCSRA & BIT_MSK(ADFR)))
+    if (block_till_complete) // && !(BIT_GET(ADCSRA,ADFR)))
     {
         //loop until bit is clear
-        while (ADCSR & BIT_MSK(ADSC))
+        while (BIT_GET(ADCSRA,ADSC))
         {
             ;    //do nothing
         }
@@ -121,9 +123,14 @@ bool adc_start_conversion(bool block_till_complete)
     return true;
 }
 
-uint8_t adc_read8_value(void)
+uint8_t adc_read8H_value(void)
 {
     return ADCH;
+}
+
+uint8_t adc_read8L_value(void)
+{
+    return ADCL;
 }
 
 uint16_t adc_read10_value(void)
@@ -143,7 +150,7 @@ void adc_set_prescale(eADCPrescaleValues value)
     if (value == clk_over_2_default)
     {
         BIT_CLEAR(ADCSRA, ADPS2);
-        BIT_CLEAR(ADCSRA, ADPS1);
+        BIT_CLEAR(ADCSRA, ADPS1); 
         BIT_CLEAR(ADCSRA, ADPS0);
     }
     else if (value == clk_over_4)

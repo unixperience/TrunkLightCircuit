@@ -1,8 +1,9 @@
 /*
  * avr_adc.h
+ * This file has all basic commands to use the ADC periphreal on avr atmega boards
  *
  * Created: 12/19/2018 12:20:55 PM
- *  Author: Andrew
+ *  Author: Andrew Asuelime
  */ 
 
 
@@ -15,7 +16,7 @@
 #define ADC_INPUT_NUM_FLASH PINC0
 #define MASK_10_BIT     0X03FF
 
-enum eADCPrescaleValues
+typedef enum _eADCPrescaleValues
 {
     //bottom 3 bits only, ADPS2...ADPS0 clear them then you can binary OR the enum
     clk_over_2_default  = 0x00,
@@ -25,18 +26,18 @@ enum eADCPrescaleValues
     clk_over_32         = 0x05,
     clk_over_64         = 0x06,
     clk_over_128        = 0x07,
-};
+}eADCPrescaleValues;
 
-enum eADCReference
+typedef enum _eADCReference
 {
     //top 2 bits of ADMUX only, REFS1...REFS0 clear them then you can binary OR the enum
     AREF_default    = 0x00, /**pin, Vref turned on. If there is a fixed voltage on this pin, 
                                no other selection will work despite the users selection*/
     AVcc            = 0x40, /**Ideally with external cap at AREF */
     Internal_2p56V  = 0xC0, /**Ideally with external cap at AREF */
-};    
+}eADCReference;    
 
-enum eADCInput
+typedef enum _eADCInput
 {
     //bottom 4 bits of ADMUX only, MUX3...MUX0 clear them then you can binary OR the enum
     ADC0        = 0x00,
@@ -49,11 +50,19 @@ enum eADCInput
     ADC7        = 0x07,
     REF_1P30v   = 0x0E,  /// Internal 1.30v reference value for internal test
     GND_0V      = 0x0F,  /// Internal 0v reference value for internal test
-};
-    
-void adc_default(void);
+}eADCInput;
+
+
+/** This function clears all configuration from the ADC. It disables
+    all interrupts/flags associated with the ADC. To use the adc again 
+    you must renable all properties manually
+    */
+void adc_reset(void);
 void adc_enable_interrupt_on_conversion(void);
 void adc_disable_interrupt_on_conversion(void);
+
+void adc_enable_flag_on_conversion(void);
+void adc_disable_flag_on_conversion(void);
 
 /** selects the ADC channel
  @PARAM adc_mux_input value 0-7 corresponding to the ADC channel, if the 
@@ -63,10 +72,25 @@ void adc_disable_interrupt_on_conversion(void);
          true otherwise
  */
 void adc_select_input_channel(eADCInput value);
+
+/** This function enables the ADC only. It does not start conversions or do any configuration
+    it ONLY enables it
+    */
 void adc_enable(void);
+
+/** This disables the ADC while preserving all other AC settings and state
+*/
 void adc_disable(void);
 
+/** Since the ADC is a 10 bit value the top 8 bits are in ADCH and
+    the top two bytes are the 2 msb of ADCL 
+    */
 void adc_left_shift_result(void);
+
+/** this is the default setup when the ADC is activated. 
+    Since the ADC is a 10 bit value the bottom 8 bits are in ADCL and
+    the top two bytes are the 2 lsb of ADCH 
+    */
 void adc_right_shift_result(void);
 
 void adc_select_ref(eADCReference value);
@@ -90,7 +114,14 @@ bool adc_start_conversion(bool block_till_complete);
  this reads the 8 most significant bits(10-2)
  @RETURN the 8 bit value of last conversion
  */
-uint8_t adc_read8_value(void);
+uint8_t adc_read8H_value(void);
+
+/**
+ reads the most recent 8bit value from the ADC. Recall adc is 10 bit
+ this reads the 8 least significant bits(10-2)
+ @RETURN the 8 bit value of last conversion
+ */
+uint8_t adc_read8L_value(void);
 
 /**
  reads the most recent 10bit value from the ADC.  
