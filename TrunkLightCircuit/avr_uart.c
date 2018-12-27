@@ -4,11 +4,29 @@
  * Created: 12/21/2018 12:54:25 PM
  *  Author: Andrew
  */ 
+
+
+//TXC must be cleared before each transmission (before udr is written)
+//RXC checks for existing Rx data in the receive buffer
+//when you write to UCSRC you must set URSEL bit (MSB) since i/o location is shared by
+//  UBRRH and UCSRC
+// anytime you write to UCSRA register you must set UDRE bit low
+
+
 #include "avr_uart.h"
 #include <util/atomic.h>
+#include <avr/interrupt.h>
 
+#define ASCII_0         48
 #define UCSRC_CLEAR_VAL 0x80  /// This clears register UCSRC, all writes to the reg must have
-                              /// URSEL bit (MSB 7) set since this register is shared with UBRRH
+                              /// URSEL bit (MSB 7) set since this register is shared with UBRRH'
+                             
+volatile char rcv_buff[_UART_RX_BUFF_MAX_LEN];
+volatile uint8_t rcv_buff_len;
+
+/************************************************************************/
+/* UART CONFIGURATION FUNCTIONS                                         */
+/************************************************************************/
 
 /** Private function _uart_ReadUCSRC reads the UART Control Status Register C
     this register has a special read sequence, so it is put into a helper function
@@ -43,40 +61,6 @@ void uart_default(void)
     UBRRL = 0x00;
     UBRRH = 0x00;    
 }
- //////////////////////////////////////////////////////////////////////////
- //atmel sample code begin
-void USART_Init( unsigned int ubrr)
-{
-    /* Set baud rate */
-    UBRRH = (unsigned char)(ubrr>>8);
-    UBRRL = (unsigned char)ubrr;
-    /* Enable receiver and transmitter */
-    UCSRB = (1<<RXEN)|(1<<TXEN);
-    /* Set frame format: 8data, 2stop bit */
-    UCSRC = (1<<URSEL)|(1<<USBS)|(3<<UCSZ0);
-}    
-
-void USART_Transmit( unsigned char data )
-{
-    /* Wait for empty transmit buffer */
-    while ( !( UCSRA & (1<<UDRE)) )
-    ;
-    /* Put data into buffer, sends the data */
-    UDR = data;
-}
-//atmel sample code end
-//////////////////////////////////////////////////////////////////////////
-
-//Baud rate calculation
-// UBRR = [Fosc / (16*BAUD)] -1
-// 
-
-//TXC must be cleared before each transmission (before udr is written)
-//RXC checks for existing Rx data in the receive buffer
-//when you write to UCSRC you must set URSEL bit (MSB) since i/o location is shared by
-//  UBRRH and UCSRC
-// anytime you write to UCSRA register you must set UDRE bit low
-
 
 void uart_SetCharWidth(eUARTCharSize value)
 {
@@ -150,7 +134,7 @@ void uart_SetParity(eUartParityMode value)
     UCSRC = ucsrc_val;
 }
 
-void uart_SetStopBit1Not2(eUARTStopBits value)
+void uart_SetStopBits(eUARTStopBits value)
 {
     uint8_t ucsrc_val;
     
@@ -171,6 +155,8 @@ void uart_SetStopBit1Not2(eUARTStopBits value)
     UCSRC = ucsrc_val;   
 }
 
+//Baud rate calculation
+// UBRR = [Fosc / (16*BAUD)] -1
 bool uart_SetBaudRate(eUartBaudRate value)
 {
     BIT_SET(UCSRA, U2X);    //enables double data rate
@@ -248,30 +234,55 @@ bool uart_SetBaudRate(eUartBaudRate value)
     return false;
 #endif
 } 
-   
+
+void UART_enableRxInterrupt(void)
+{
+    //system enable interrupt
+    sei();
+    
+    //set RX Complete interrupt enable
+    BIT_SET(UCSRB, RXCIE);
+}
+
+void UART_disableRxInterrupt(void)
+{
+    //set RX Complete interrupt enable
+    BIT_CLEAR(UCSRB, RXCIE);
+}
+
+/************************************************************************/
+/* UART USE FUNCTIONS                                                   */
+/************************************************************************/
 void uart_enable(eUartBaudRate baud_rate,
                  eUARTCharSize char_size,
                  eUARTStopBits stop_bits,
                  eUartParityMode parity)
 {    
+    int ii;
     //clear UCSRC so we have a known state to easily OR settings
     UCSRC = UCSRC_CLEAR_VAL; 
-    
-    //we are using asynchronous mode, so UMSEL==0, 1==synchronous
-    //all writes to UCSRC must have URSEL set
-    UCSRC |= (1<<URSEL)     //write enable
-          || (1<<UMSEL);    //async mode
-          
-    uart_SetBaudRate(baud_rate);
-    uart_SetCharWidth(char_size);
-    uart_SetStopBits(stop_bits);
-    uart_SetParity(parity);
     
     //enable tx pin
     BIT_SET(UCSRB, TXEN);
         
     //enable rx pin
     BIT_SET(UCSRB, RXEN);
+    
+    //we are using asynchronous mode, so UMSEL==0, 1==synchronous
+    //all writes to UCSRC must have URSEL set
+    /*UCSRC |= (1<<URSEL)     //write enable
+          || (1<<UMSEL);    //async mode
+      */    
+    uart_SetBaudRate(baud_rate);
+    uart_SetCharWidth(char_size);
+    uart_SetStopBits(stop_bits);
+    uart_SetParity(parity);
+    
+    rcv_buff_len = 0;
+    for (ii=0; ii < _UART_RX_BUFF_MAX_LEN; ii++)
+    {
+        rcv_buff[ii] = 0;
+    }
 }
 
 void uart_disable(void)
@@ -281,4 +292,422 @@ void uart_disable(void)
     
     //disable rx pin
     BIT_CLEAR(UCSRB, RXEN);
+}
+
+bool _UART_TxIsBusy(void)
+{
+    //if the UDR (Uart Data Register) is Empty then TX is NOT busy
+    //otherwise it is
+    if (BIT_GET(UCSRA,UDRE))
+    {
+        return false;
+    }
+    else
+    {
+        return true;
+    }
+}
+
+uint8_t UART_transmitString(char *str)
+{
+    uint8_t bytes_sent = 0;
+    
+    while (*str != 0)
+    {
+        //wait till previous write is done
+        while (_UART_TxIsBusy() == true)
+        {
+            ;
+        }
+        
+        //puts data in transmit register
+        UDR  = *str;
+
+        //advance pointer, increase counter
+        str++;
+        bytes_sent++;
+    }
+    
+    UART_transmitNewLine();
+    
+    return bytes_sent;
+}
+
+uint8_t UART_transmitBytes(char *data, uint8_t len)
+{
+    uint8_t bytes_sent = 0;
+    
+    while (len > 0)
+    {
+        //wait till previous write is done
+        while (_UART_TxIsBusy() == true)
+        {
+            ;
+        }
+        
+        //puts data in transmit register
+        UDR  = *data;
+
+        //advance pointer, decrease counter
+        data++;
+        len--;
+        bytes_sent++;
+    }
+    
+    return bytes_sent;
+}
+
+void UART_TransmitByte(char data)
+{
+    UART_transmitBytes(&data, 1);
+}
+
+void UART_transmitNewLine(void)
+{
+    UART_transmitBytes("\r\n",2);
+}
+/** This private support function will tell whether or not the USRT RX data Register (UDR)
+ * has pending data or not. 
+ * @NOTE this doesn't read the data, it just tells its presence
+ */
+bool _UART_RxIsData(void)
+{
+    //if the Receive is Complete then we HAVE data
+    //otherwise we dont
+    if (BIT_GET(UCSRA,RXC))
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+
+void UART_ReceievBytes(char* ret_data,  uint8_t desired_len)
+{
+    uint8_t num_bytes_rcv;
+    
+    for (num_bytes_rcv=0; num_bytes_rcv < desired_len; num_bytes_rcv++)
+    {
+        //wait for data to arrive in Rx register
+        while (_UART_RxIsData() == false)
+        {
+            ;
+        }
+        
+        //read it to our buffer
+        ret_data[num_bytes_rcv] = UDR;
+    }
+}
+
+void UART_ReceiveByte(char* ret_data)
+{
+    UART_ReceievBytes(ret_data, 1);
+}
+
+/** This function will retrieve data from the uart rcv buffer. This will only have data
+ * if interrupts are enabled AND data has been received. It will return the data and
+ * length to the calling program
+ * @PARAM ret_data[output] all data in the rcv buffer. This buffer should be pre-initialized
+ *  to 0 and must be at least _UART_RX_BUFF_MAX_LEN bytes long
+ * @PARAM ret_data_len [out] the number of bytes returned.
+ */
+void UART_ReadRxBuff(char* ret_data, uint8_t* ret_data_len)
+{
+    uint8_t ii;
+    *ret_data_len = rcv_buff_len;
+    
+    for (ii = 0; ii < rcv_buff_len; ii++)
+    {
+        //aia.test is this gonna be one off because the while condition??? shouldn't
+        //copy data from buffer to return value
+        ret_data[ii] = rcv_buff[ii];
+        
+        //clear rcv buffer
+        rcv_buff[ii] = 0;
+        rcv_buff_len--;
+    }
+    
+    rcv_buff_len = 0;
+}
+
+/** Vector supported by ATmega16, ATmega32, ATmega323, ATmega8
+ * This ISR will automatically read values from the UART Rx register and store them into a 
+ * a buffer to be read at a later time.
+ * @NOTE If the buffer is already full, all additional bytes will be lost.
+ * At this point there is no fault handling in this code, but it could be added in the future
+*/
+ISR(USART_RXC_vect)
+{
+    //uint8_t rx_err_flags;
+    uint8_t rx_dump_register;
+    //must read error flags before reading data
+    //for now, we aren't using this data, but could check for parity or overflow errors
+    //rx_err_flags = UCSRA;
+    
+    //if we still have space in the buffer
+    //if (rcv_buff_len < _UART_RX_BUFF_MAX_LEN)
+    {        
+        rcv_buff[rcv_buff_len] = UDR;
+        PORTB = rcv_buff[rcv_buff_len];
+        rcv_buff_len++;
+    }
+    /*else
+    {
+        //we have to read the value to clear all flags and stop the 
+        //interrupt from triggering, even if we are just dumping the 
+        //value
+        rx_dump_register = UDR;
+        PORTB = rcv_buff_len;
+    }
+    */
+}
+
+void convertUint8ToChar(uint8_t in_val, char* output_3_chars)
+{
+    uint8_t ones;
+    uint8_t tens;
+    uint8_t hundreds;
+    uint8_t remainder;
+    
+    remainder = in_val;
+    
+    //now we integer divide, to isolate our digit of interest   
+    hundreds = remainder / 100;
+    remainder -= (hundreds * 100);
+    
+    tens = remainder / 10;
+    ones = remainder - (tens * 10);
+    
+    if (in_val >= 100)
+    {
+        output_3_chars[0] = (char)(ASCII_0 + hundreds);
+    }
+    else
+    {
+        output_3_chars[0] = ' ';
+    }
+    
+    if (in_val >= 10)
+    {
+        output_3_chars[1] = (char)(ASCII_0 + tens);
+    }
+    else
+    {
+        output_3_chars[1] = ' ';
+    }
+    
+    output_3_chars[2] = (char)(ASCII_0 + ones);
+}
+
+void convertUint16ToChar(uint16_t in_val, char* output_6_chars)
+{
+    uint8_t ones;
+    uint8_t tens;
+    uint8_t hundreds;
+    uint16_t thousands;
+    uint16_t ten_thousands;
+    uint16_t remainder;
+    
+    remainder = in_val;
+    
+    //now we integer divide, to isolate our digit of interest
+    ten_thousands = remainder / 10000;
+    remainder -= (ten_thousands * 10000);
+    
+    thousands = remainder / 1000;
+    remainder -= (thousands * 1000);
+    
+    hundreds = remainder / 100;
+    remainder -= (hundreds * 100);
+    
+    tens = remainder / 10;
+    ones = remainder - (tens * 10);
+    
+    if (in_val >= 10000)
+    {
+        output_6_chars[0] = (char)(ASCII_0 + ten_thousands);
+    }
+    else
+    {
+        output_6_chars[0] = ' ';
+    }
+    
+    if (in_val >= 1000)
+    {
+        output_6_chars[1] = (char)(ASCII_0 + thousands);
+        output_6_chars[2] = ',';
+    }
+    else
+    {
+        output_6_chars[1] = ' ';
+        output_6_chars[2] = ' ';
+    }
+    
+    if (in_val >= 100)
+    {
+        output_6_chars[3] = (char)(ASCII_0 + hundreds);
+    }
+    else
+    {
+        output_6_chars[3] = ' ';
+    }
+    
+    if (in_val >= 10)
+    {
+        output_6_chars[4] = (char)(ASCII_0 + tens);
+    }
+    else
+    {
+        output_6_chars[4] = ' ';
+    }
+    
+    output_6_chars[5] = (char)(ASCII_0 + ones);
+}
+
+void convertInt8ToChar(int8_t in_val, char* output_4_chars)
+{
+    uint8_t ones;
+    uint8_t tens;
+    uint8_t hundreds;
+    uint8_t remainder;
+    uint8_t is_neg;
+    
+    if (in_val < 0)
+    {
+        is_neg = 1;
+        in_val = -1 * in_val;
+    }
+    else
+    {
+        is_neg = 0;
+    }
+    
+    remainder = in_val;
+    
+    //now we integer divide, to isolate our digit of interest
+    hundreds = remainder / 100;
+    remainder -= (hundreds * 100);
+    
+    tens = remainder / 10;
+    ones = remainder - (tens * 10);
+    
+    //format
+    output_4_chars[3] = (char)(ASCII_0 + ones);
+    
+    if (in_val >= 10)
+    {
+        output_4_chars[2] = (char)(ASCII_0 + tens);
+    }
+    else
+    {
+        output_4_chars[2] = ' ';
+    }
+    
+    
+    if (in_val >= 100)
+    {
+        output_4_chars[1] = (char)(ASCII_0 + hundreds);
+    }
+    else
+    {
+        output_4_chars[1] = ' ';
+    }
+    
+    if(is_neg)
+    {
+        output_4_chars[0] = '-';
+    }
+    else
+    {
+        output_4_chars[0] = ' ';
+    }
+}
+
+void convertInt16ToChar(int16_t in_val, char* output_7_chars)
+{
+    uint8_t ones;
+    uint8_t tens;
+    uint8_t hundreds;
+    uint16_t thousands;
+    uint16_t ten_thousands;
+    uint16_t remainder;
+    uint8_t is_neg;
+    
+    if (in_val < 0)
+    {
+        is_neg = 1;
+        in_val = -1 * in_val;
+    }
+    else
+    {
+        is_neg = 0;
+    }
+    
+    remainder = in_val;
+    
+    //now we integer divide, to isolate our digit of interest
+    ten_thousands = remainder / 10000;
+    remainder -= (ten_thousands * 10000);
+    
+    thousands = remainder / 1000;
+    remainder -= (thousands * 1000);
+    
+    hundreds = remainder / 100;
+    remainder -= (hundreds * 100);
+    
+    tens = remainder / 10;
+    ones = remainder - (tens * 10);
+    
+    //format
+    output_7_chars[6] = (char)(ASCII_0 + ones);
+    
+    if (in_val >= 10)
+    {
+        output_7_chars[5] = (char)(ASCII_0 + tens);
+    }
+    else
+    {
+        output_7_chars[5] = ' ';
+    }
+    
+    if (in_val >= 100)
+    {
+        output_7_chars[4] = (char)(ASCII_0 + hundreds);
+    }
+    else
+    {
+        output_7_chars[4] = ' ';
+    }
+    
+    if (in_val >= 1000)
+    {
+        output_7_chars[2] = (char)(ASCII_0 + thousands);
+        output_7_chars[3] = ',';
+    }
+    else
+    {
+        output_7_chars[2] = ' ';
+        output_7_chars[3] = ' ';
+    }
+    
+    if (in_val >= 10000)
+    {
+        output_7_chars[1] = (char)(ASCII_0 + ten_thousands);
+    }
+    else
+    {
+        output_7_chars[1] = ' ';
+    }
+    
+    if(is_neg)
+    {
+        output_7_chars[0] = '-';
+        is_neg = 0;
+    }
+    else
+    {
+        output_7_chars[0] = ' ';
+    }
 }
