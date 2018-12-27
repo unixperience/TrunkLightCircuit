@@ -159,7 +159,8 @@ void uart_SetStopBits(eUARTStopBits value)
 // UBRR = [Fosc / (16*BAUD)] -1
 bool uart_SetBaudRate(eUartBaudRate value)
 {
-    BIT_SET(UCSRA, U2X);    //enables double data rate
+    BIT_SET(UCSRA, U2X);    //enables double data rate, only valid for async mode (UMSEL=0) 
+                            //which is all we support
     
 #if (F_CPU==16000000UL)
     if (value == b1000000)
@@ -268,11 +269,6 @@ void uart_enable(eUartBaudRate baud_rate,
     //enable rx pin
     BIT_SET(UCSRB, RXEN);
     
-    //we are using asynchronous mode, so UMSEL==0, 1==synchronous
-    //all writes to UCSRC must have URSEL set
-    /*UCSRC |= (1<<URSEL)     //write enable
-          || (1<<UMSEL);    //async mode
-      */    
     uart_SetBaudRate(baud_rate);
     uart_SetCharWidth(char_size);
     uart_SetStopBits(stop_bits);
