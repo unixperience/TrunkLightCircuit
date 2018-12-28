@@ -19,8 +19,8 @@ void timer0_default(void)
     //clear interrupt generation
     BIT_CLEAR(TIMSK, TOIE0);    //overflow
     
-    //clear flag generation
-    BIT_CLEAR(TIFR, TOV0);      //overflow
+    //clear flag 
+    BIT_SET(TIFR, TOV0);      //overflow
 }
 
 void timer1_default(void)
@@ -265,7 +265,8 @@ void setPWMVal(ePWM_OUTPUT output_pin, uint8_t val)
 }
 
 /// @NOTE currently this only supports non-inverted mode. It will also set 16 bit
-/// timer into 8 bit mode
+/// timer into 8 bit mode. This function only enables the wave form generator and 
+/// output pins. It doesn't not alter the counter/compare-match values
 void enablePWMOutput(ePWM_OUTPUT output_pin)
 {
     if (output_pin == epwm_1a)
@@ -327,6 +328,38 @@ void disablePWMOutput(ePWM_OUTPUT output_pin)
         //disconnect OC2 from Waveform Generation module
         BIT_CLEAR(TCCR2, COM21);
         BIT_CLEAR(TCCR2, COM20);
+    }
+}
+
+void enableTimerOverflowInterrupt(eTIMER val)
+{
+    if (val == etimer_0)
+    {
+        BIT_SET(TIMSK, TOIE0);
+    }
+    else if (val == etimer_1)
+    {
+        BIT_SET(TIMSK, TOIE1);
+    }
+    else if (val == etimer_2)
+    {
+        BIT_SET(TIMSK, TOIE2);
+    }
+}
+
+void disableTimerOverflowInterrupt(eTIMER val)
+{
+    if (val == etimer_0)
+    {
+        BIT_CLEAR(TIMSK, TOIE0);
+    }
+    else if (val == etimer_1)
+    {
+        BIT_CLEAR(TIMSK, TOIE1);
+    }
+    else if (val == etimer_2)
+    {
+        BIT_CLEAR(TIMSK, TOIE2);
     }
 }
 

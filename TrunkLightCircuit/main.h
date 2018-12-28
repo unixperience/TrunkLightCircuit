@@ -60,4 +60,22 @@ void init_timer2(void);
 #define ARR_IDX_LEFT    0
 #define ARR_IDX_BRAKE   1
 #define ARR_IDX_RIGHT   2
+
+//LIGHT INPUTS PORT D
+#define LIGHT_INPUT_PORT    PIND
+#define LEFT_IN             PIND2   //this is also int0 pin
+#define BRAKE_IN            PIND3   //this is also int1 pin
+#define RIGHT_IN            PIND4
+
+//pwm values for light levels
+#define DUTY_CYCLE_FULL_BRIGHTNESS 100 /// used for braking or turn signal
+#define DUTY_CYCLE_LOW_BRIGHTNESS   15 /// used for running lights
+#define DUTY_CYCLE_OFF_BRIGHTNESS    0 /// turns lights off used for turn signal and/or brake flashing
+
+bool gb_SEPARATE_FUNCTION_LIGHTS;
+bool gb_BRAKE_ON;
+
+#define TIMER0_ADDTL_PRESCALE 3
+
+uint8_t gu8_NUM_TIMER0_OVF;
 #endif /* MAIN_H_ */

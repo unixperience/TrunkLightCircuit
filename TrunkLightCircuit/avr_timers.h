@@ -51,6 +51,8 @@ void setPWMDutyCycle(ePWM_OUTPUT output_pin, uint8_t value_0_to_100);
 void setPWMVal(ePWM_OUTPUT output_pin, uint8_t val);
 void enablePWMOutput(ePWM_OUTPUT output_pin);
 void disablePWMOutput(ePWM_OUTPUT output_pin);
+void enableTimerOverflowInterrupt(eTIMER val);
+void disableTimerOverflowInterrupt(eTIMER val);
 
 //////////////////////////////////////////////////////////////////////////
 //aia.test //this was an old function, it doens't belong here but maybe in the main? idk
