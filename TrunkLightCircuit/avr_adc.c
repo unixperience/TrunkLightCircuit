@@ -28,6 +28,16 @@ void adc_disable_interrupt_on_conversion(void)
      BIT_CLEAR(ADCSRA,ADIE);
 }
 
+void adc_enableFreeRunningMode(void)
+{
+    BIT_SET(ADCSRA, ADFR);
+}
+
+void adc_disableFreeRunningMode(void)
+{
+    BIT_CLEAR(ADCSRA, ADFR);
+}
+
 void adc_select_input_channel(eADCInput value)
 {
     // Normally I would write these as 4 BIT_SET/CLEAR instructions, but I'm

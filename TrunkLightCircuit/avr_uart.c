@@ -21,8 +21,8 @@
 #define UCSRC_CLEAR_VAL 0x80  /// This clears register UCSRC, all writes to the reg must have
                               /// URSEL bit (MSB 7) set since this register is shared with UBRRH'
                              
-volatile char rcv_buff[_UART_RX_BUFF_MAX_LEN];
-volatile uint8_t rcv_buff_len;
+static volatile char rcv_buff[_UART_RX_BUFF_MAX_LEN] = {0};
+static volatile uint8_t rcv_buff_len = 0;
 
 /************************************************************************/
 /* UART CONFIGURATION FUNCTIONS                                         */
@@ -411,9 +411,10 @@ void UART_ReceiveByte(char* ret_data)
  */
 void UART_ReadRxBuff(char* ret_data, uint8_t* ret_data_len)
 {
-    uint8_t ii;
-    *ret_data_len = rcv_buff_len;
+    uint8_t ii;    
     
+    //UART_disableRxInterrupt();
+    *ret_data_len = rcv_buff_len;
     for (ii = 0; ii < rcv_buff_len; ii++)
     {
         //aia.test is this gonna be one off because the while condition??? shouldn't
@@ -422,10 +423,10 @@ void UART_ReadRxBuff(char* ret_data, uint8_t* ret_data_len)
         
         //clear rcv buffer
         rcv_buff[ii] = 0;
-        rcv_buff_len--;
     }
-    
     rcv_buff_len = 0;
+     
+    //UART_enableRxInterrupt();
 }
 
 /** Vector supported by ATmega16, ATmega32, ATmega323, ATmega8
@@ -443,21 +444,18 @@ ISR(USART_RXC_vect)
     //rx_err_flags = UCSRA;
     
     //if we still have space in the buffer
-    //if (rcv_buff_len < _UART_RX_BUFF_MAX_LEN)
+    if (rcv_buff_len < _UART_RX_BUFF_MAX_LEN)
     {        
         rcv_buff[rcv_buff_len] = UDR;
-        PORTB = rcv_buff[rcv_buff_len];
         rcv_buff_len++;
     }
-    /*else
+    else
     {
         //we have to read the value to clear all flags and stop the 
         //interrupt from triggering, even if we are just dumping the 
         //value
         rx_dump_register = UDR;
-        PORTB = rcv_buff_len;
     }
-    */
 }
 
 void convertUint8ToChar(uint8_t in_val, char* output_3_chars)

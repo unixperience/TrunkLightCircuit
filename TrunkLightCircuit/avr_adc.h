@@ -37,6 +37,7 @@ typedef enum _eADCReference
     Internal_2p56V  = 0xC0, /**Ideally with external cap at AREF */
 }eADCReference;    
 
+//
 typedef enum _eADCInput
 {
     //bottom 4 bits of ADMUX only, MUX3...MUX0 clear them then you can binary OR the enum
@@ -47,9 +48,12 @@ typedef enum _eADCInput
     ADC4        = 0x04,
     ADC5        = 0x05,
     ADC6        = 0x06,
-    ADC7        = 0x07,
-    REF_1P30v   = 0x0E,  /// Internal 1.30v reference value for internal test
-    GND_0V      = 0x0F,  /// Internal 0v reference value for internal test
+    ADC7        = 0x07,    
+    REF_1P30v_mega8   = 0x0E,  /// Internal 1.30v reference value for internal test
+    GND_0V_mega8      = 0x0F,  /// Internal 0v reference value for internal test
+    // ATMEGA32 has different ref values
+    REF_1P22v_mega32   = 0x1E,  /// Internal 1.30v reference value for internal test
+    GND_0V_mega32      = 0x1F,  /// Internal 0v reference value for internal test
 }eADCInput;
 
 
@@ -61,8 +65,8 @@ void adc_reset(void);
 void adc_enable_interrupt_on_conversion(void);
 void adc_disable_interrupt_on_conversion(void);
 
-void adc_enable_flag_on_conversion(void);
-void adc_disable_flag_on_conversion(void);
+void adc_enableFreeRunningMode(void);
+void adc_disableFreeRunningMode(void);
 
 /** selects the ADC channel
  @PARAM adc_mux_input value 0-7 corresponding to the ADC channel, if the 

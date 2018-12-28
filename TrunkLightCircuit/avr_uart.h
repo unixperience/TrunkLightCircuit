@@ -11,8 +11,7 @@
 
 #include "global.h"
 ///This tells the maximum Rx buffer length for asyncronous Rx storage, Interrupts must be enabled to use this
-#define _UART_RX_BUFF_MAX_LEN 16    
-#define _UART_TX_BUFF_MAX_LEN 16    
+#define _UART_RX_BUFF_MAX_LEN 128
 
 typedef enum _eUARTCharSize
 {
