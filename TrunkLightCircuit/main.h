@@ -46,13 +46,26 @@ ISR(ADC_vect);
 /************************************************************************/
 /*                               TIMERS                                 */
 /************************************************************************/
+#define TIMER0_ADDTL_PRESCALE 3
+// 16MHz / (8_bit_max * prescaler) = 16MHz / (256 * 1024) = 61.03Hz
+//  to get down to 1 second we need to wait 61 ovf before it starts
+#define TIMER2_ADDTL_1_SEC_PRESCALE 61
+
+volatile uint8_t gu8_NUM_TIMER0_OVF;
+volatile uint8_t gu8_NUM_TIMER2_OVF;
+
 //LEFT, BRAKE, RIGHT
 const ePWM_OUTPUT arr_pwm_output[3] = {epwm_1a, epwm_2, epwm_1b};
     
+ISR(TIMER0_OVF_vect);
+ISR(TIMER2_OVF_vect);
+
 void init_timers(void);
 void init_timer0(void);
 void init_timer1(void);
 void init_timer2(void);
+
+void init_timer2AsOneSecondTimer(void);
 
 /************************************************************************/
 /*                               MAIN                                   */
@@ -67,6 +80,10 @@ void init_timer2(void);
 #define BRAKE_IN            PIND3   //this is also int1 pin
 #define RIGHT_IN            PIND4
 
+//Status LED
+#define LED_OUTPUT_PORT     PORTD
+#define LED_OUTPUT_PIN      PIND5
+
 //pwm values for light levels
 #define DUTY_CYCLE_FULL_BRIGHTNESS 100 /// used for braking or turn signal
 #define DUTY_CYCLE_LOW_BRIGHTNESS   15 /// used for running lights
@@ -74,8 +91,14 @@ void init_timer2(void);
 
 bool gb_SEPARATE_FUNCTION_LIGHTS;
 bool gb_BRAKE_ON;
+bool gb_LEFT_TURN_SIGNAL_ON;
+bool gb_RIGHT_TURN_SIGNAL_ON;
 
-#define TIMER0_ADDTL_PRESCALE 3
+// for brake input
+ISR(INT1_vect);
 
-uint8_t gu8_NUM_TIMER0_OVF;
+void init_external_interupts(void);
+void init_globals(void);
+void init_IO(void);
+void init(void);
 #endif /* MAIN_H_ */

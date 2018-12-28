@@ -183,6 +183,32 @@ ISR(TIMER0_OVF_vect)
     }    
 }
 
+/** This interrupt is used as a 1 second "watchdog" timer for turn signals In the 
+ *  combined function lights. When a turn signal is on, it does not perform brake
+ *  duties till 1 second after the signal has been disabled. 
+ *  Once an entire second goes by without turn signal input, we say that turn signal
+ *  function is over.
+ */
+ISR(TIMER2_OVF_vect)
+{
+    //if the turn signal isn't on, we don't have to do anything with this interrupt
+    if (gb_LEFT_TURN_SIGNAL_ON || gb_RIGHT_TURN_SIGNAL_ON)
+    {
+        if (gu8_NUM_TIMER2_OVF >= TIMER2_ADDTL_1_SEC_PRESCALE)
+        {
+            gu8_NUM_TIMER2_OVF = 0;
+            //one second has elapsed without another turn signal lighting
+            //up, we can set the turn signal flag low
+            gb_LEFT_TURN_SIGNAL_ON = false;
+            gb_RIGHT_TURN_SIGNAL_ON = false;
+        }
+        else
+        {
+            gu8_NUM_TIMER2_OVF++;
+        }
+    }
+}
+
 //16bit reads -> read low -> read high
 //16bit writes -> write high -> write low
 void init_timers(void)
@@ -197,7 +223,6 @@ void init_timers(void)
     init_timer1();
     init_timer2();
 }
-
 
 void init_timer0(void)
 {
@@ -250,15 +275,24 @@ void init_timer2(void)
     // 16MHz / (8_bit_max * prescaler) = 16MHz / (256 * 64) = 488.3Hz
     SetTimerPrescale(etimer_2, tmr_prscl_clk_over_64);
 }
+
+void init_timer2AsOneSecondTimer(void)
+{
+    //reset registers to a known state
+    timer2_default();
+    
+    //sets prescaler to 1024 F_CPU = 16MHz
+    //no real reason for this value, as long as its PWM we are fine
+    // 16MHz / (8_bit_max * prescaler) = 16MHz / (256 * 1024) = 61.03Hz
+    SetTimerPrescale(etimer_2, tmr_prscl_clk_over_1024);
+    
+    enableTimerOverflowInterrupt(etimer_2);
+}
 #pragma endregion timers
 
 /************************************************************************/
 /*                               MAIN                                   */
 /************************************************************************/
-void init_globals(void)
-{
-    gu8_NUM_TIMER0_OVF = 0;
-}
 ISR(INT1_vect)
 {
     // this is the only place these values are set, other places only read them
@@ -283,6 +317,79 @@ ISR(INT1_vect)
     }
 }
 
+void init_external_interupts(void)
+{
+    //any logical change on int1 generates an interrupt request
+    //set Interrupt Sense Control Bit
+    BIT_SET(MCUCR,ISC10);
+    
+    BIT_SET(GICR,INT1);
+}
+
+void init_globals(void)
+{
+    gb_NUM_ADC_CONVERSIONS = 0;
+    
+    //the temptation might be to set these flags in a bit field in a single 8 bit register
+    //but since they are set by multiple interrupts, we lessen the probability of data
+    //corruption by keeping them separate
+    gb_SEPARATE_FUNCTION_LIGHTS = false;
+    gb_BRAKE_ON = false;
+    gb_LEFT_TURN_SIGNAL_ON = false;
+    gb_RIGHT_TURN_SIGNAL_ON = false;
+
+    gu8_NUM_TIMER0_OVF = 0;
+    gu8_NUM_TIMER2_OVF = 0;
+}
+
+void init_IO(void)
+{
+    //output = 1; input = 0
+       
+    //sets all pins to inputs
+    DDRB = 0x00;
+    DDRC = 0x00;
+    DDRD = 0x00;
+       
+    //most of the pins are used as special functions.  So their DDR (data Direction Register)
+    //definitions will be over-ridden anyway. These pins include:
+    //  PB1 - PWM output OC1A, left  turn signal
+    //  PB2 - PWM output OC1B, right turn signal
+    //  PB3 - PWM output OC2,  brake light
+    //  PB6 - OSC XTAL osc1
+    //  PB7 - OSC XTAL osc2
+    //  PC0 - ADC input flash freq
+    //  PC1 - ADC input flash num
+    //  PC2 - ADC input left  feedback/current measuring
+    //  PC3 - ADC input brake feedback/current measuring
+    //  PC4 - ADC input rigth feedback/current measuring
+    //  PC6 - nRESET
+    //  PD0 - UART Rx
+    //  PD1 - UART Tx
+    //  PD3 - External interrupt 1, brake input
+    //
+    //so now we set the remaining pins
+    //  PD2 - Left input
+    //  PD4 - Right input
+    //  PD5 - Output status LED
+    //sets output pins
+    DDRD |= (1 << LED_OUTPUT_PIN);
+       
+    //clears output pins
+    BIT_CLEAR(LED_OUTPUT_PORT, LED_OUTPUT_PIN);
+}
+
+
+void init(void)
+{
+    init_IO();
+    init_globals();
+    init_external_interupts();
+    
+    //enable global interrupts
+    sei();
+}
+
 /** @brief Writes the current position of the cursor
  *         into the arguments row and col.
  *	Just a regular detailed description goes here
@@ -303,11 +410,6 @@ int main(void)
     DDRB = 0xFF;
     PORTB = 0xAA;
     
-    bool LEFT_TURN_ON = false;
-    bool RIGHT_TURN_ON = false;
-    
-    //globals
-    gb_BRAKE_ON = false;
     
     init_uart_debug();
     
@@ -338,6 +440,7 @@ int main(void)
     {
         // here we have a separate brake and turn signals. The turn signals only
         // need to handle themselves based on current input values
+        
         // the lights are flashed by enabling and disabling the PWM output
         // this ensures no dim glow/leakage we would get if we left them on with 0% duty cycle
         setPWMDutyCycle(arr_pwm_output[ARR_IDX_LEFT], DUTY_CYCLE_FULL_BRIGHTNESS);
@@ -357,12 +460,11 @@ int main(void)
         //here we have no explicit brake light, only left and right lights, so they
         //must operate as brake AND turn signal
         
-        //this will disable pwm on the brake light and stop timer2 from running
-        timer2_default();
-        
+        //this will disable pwm on the brake light 
         //now timer2 will be repurposed as a 1 second timer
         //when turn signals are on we want it to go from full/off for contrast
-        //if the signal doens't go high for 1 second, we can resume brake duty
+        //if the signal doesn't go high for 1 second, we can resume brake duty
+        init_timer2AsOneSecondTimer();
         
         //timer0 is used as flasher function, we wont have this for combined light mode
         //so we disable it completely
@@ -373,123 +475,110 @@ int main(void)
         setPWMDutyCycle(arr_pwm_output[ARR_IDX_RIGHT], DUTY_CYCLE_LOW_BRIGHTNESS);
     }        
     
-    /* Replace with your application code */
-    while (1) 
+    while (1)
     {
-        _delay_ms(3000);
-        //flash LED sequence
-        _delay_ms(100);
-        PORTB = 0x00;
-        _delay_ms(100);
-        PORTB = 0xFF;
-        
-        _delay_ms(100);
-        PORTB = 0x00;
-        _delay_ms(100);
-        PORTB = 0xFF;
-        
-        _delay_ms(100);
-        PORTB = 0x00;
-        _delay_ms(100);
-        PORTB = 0xFF;
-        
-        _delay_ms(100);
-        PORTB = 0x00;
-        _delay_ms(100);
-        PORTB = 0xFF;
-        
-        _delay_ms(100);
-        PORTB = 0x00;
-        _delay_ms(100);
-        PORTB = 0xFF;
-
-        //this is supposed to read from the Rx Buffer
-        UART_ReadRxBuff(ret_data, &ret_len);
-        convertUint8ToChar(ret_len, int_str);
-        UART_transmitBytes("\r\nReceived data bytes:", 22);
-        UART_transmitBytes(int_str, 3);
-        UART_transmitNewLine();
-        UART_transmitBytes(ret_data, ret_len);
-        UART_transmitNewLine();
-
-    }
-    
-    //////////////////////////////////////////////////////////////////////////
-    if (gb_SEPARATE_FUNCTION_LIGHTS)
-    {
-        // here we have a separate brake and turn signals. The turn signals only
-        // need to handle themselves based on current input values,
-        
-        // we already set the duty cycle to 100%, now we are simply enabling or
-        // disabling the output pin. The advantage of the method is it eliminates
-        // the leakage/dim-glow if we simply set the PWM value to 0% duty cycle
-        
-        // LEFT TURN
-        if (BIT_GET(LIGHT_INPUT_PORT, LEFT_IN))
+        if (gb_SEPARATE_FUNCTION_LIGHTS)
         {
-            enablePWMOutput(arr_pwm_output[ARR_IDX_LEFT]);
+            // here we have a separate brake and turn signals. The turn signals only
+            // need to handle themselves based on current input values,
+            
+            // we already set the duty cycle to 100%, now we are simply enabling or
+            // disabling the output pin. The advantage of the method is it eliminates
+            // the leakage/dim-glow if we simply set the PWM value to 0% duty cycle
+            
+            // LEFT TURN
+            if (BIT_GET(LIGHT_INPUT_PORT, LEFT_IN))
+            {
+                enablePWMOutput(arr_pwm_output[ARR_IDX_LEFT]);
+            }
+            else
+            {
+                disablePWMOutput(arr_pwm_output[ARR_IDX_LEFT]);
+                
+            }
+            
+            //RIGHT TURN
+            if (BIT_GET(LIGHT_INPUT_PORT, RIGHT_IN))
+            {
+                enablePWMOutput(arr_pwm_output[ARR_IDX_RIGHT]);
+            }
+            else
+            {
+                disablePWMOutput(arr_pwm_output[ARR_IDX_RIGHT]);
+            }
+            
+            //BRAKE handled by interrupts (ext1 and timer0 overflow)
         }
         else
         {
-            disablePWMOutput(arr_pwm_output[ARR_IDX_LEFT]);
+            // this is where we only have a left light and a right light, the must handle both
+            // brakes and turn signals.
+            // We cannot simply set output based on input since we have to keep in mind what
+            // the brake should be doing
             
-        }
-            
-        //RIGHT TURN
-        if (BIT_GET(LIGHT_INPUT_PORT, RIGHT_IN))
-        {
-            enablePWMOutput(arr_pwm_output[ARR_IDX_RIGHT]);
-        }
-        else
-        {
-            disablePWMOutput(arr_pwm_output[ARR_IDX_RIGHT]);
-        }    
-            
-        //BRAKE handled by interrupts (ext1 and timer0 overflow)
-    }
-    else
-    {
-        // this is where we only have a left light and a right light, the must handle both
-        // brakes and turn signals. 
-        // We cannot simply set output based on input since we have to keep in mind what 
-        // the brake should be doing
-        
-        // LEFT TURN
-        if (BIT_GET(LIGHT_INPUT_PORT, LEFT_IN))
-        {
-            setPWMDutyCycle(arr_pwm_output[ARR_IDX_LEFT], DUTY_CYCLE_FULL_BRIGHTNESS);
-            //you need the watchdog timer
-        }
-        else
-        {
-            //aia.test
             //brakes turn output
             //  0       0   low brightness
             //  0       1   alternate high/off (for contrast)
             //  1       0   high brightness
-            //  1       1   alternate high/low???
-            // after like 1 second of turn signal being off, we can go to full brake brightness
-            if (gb_BRAKE_ON)
-            {
+            //  1       1   alternate high/OFF (TURN SIGNAL OVERRIDES BRAKES)
+            // after like 1 second of turn signal being off, we can resume regular brake duty
             
+            // LEFT TURN
+            if (BIT_GET(LIGHT_INPUT_PORT, LEFT_IN))
+            {
+                setPWMDutyCycle(arr_pwm_output[ARR_IDX_LEFT], DUTY_CYCLE_FULL_BRIGHTNESS);
+                //you need the watchdog timer
+                gu8_NUM_TIMER2_OVF = 0;
+                gb_LEFT_TURN_SIGNAL_ON = true;
             }
             else
             {
-                setPWMDutyCycle(arr_pwm_output[ARR_IDX_LEFT], DUTY_CYCLE_LOW_BRIGHTNESS);
-            }                
+                if (gb_LEFT_TURN_SIGNAL_ON)
+                {
+                    setPWMDutyCycle(arr_pwm_output[ARR_IDX_LEFT], DUTY_CYCLE_OFF_BRIGHTNESS);
+                }
+                else
+                {
+                    if (gb_BRAKE_ON)
+                    {
+                        setPWMDutyCycle(arr_pwm_output[ARR_IDX_LEFT], DUTY_CYCLE_FULL_BRIGHTNESS);
+                    }
+                    else
+                    {
+                        setPWMDutyCycle(arr_pwm_output[ARR_IDX_LEFT], DUTY_CYCLE_LOW_BRIGHTNESS);
+                    }
+                }
+            }
+            
+            // RIGHT TURN
+            if (BIT_GET(LIGHT_INPUT_PORT, RIGHT_IN))
+            {
+                setPWMDutyCycle(arr_pwm_output[ARR_IDX_RIGHT], DUTY_CYCLE_FULL_BRIGHTNESS);
+                //you need the watchdog timer
+                gu8_NUM_TIMER2_OVF = 0;
+                gb_RIGHT_TURN_SIGNAL_ON = true;
+            }
+            else
+            {
+                if (gb_RIGHT_TURN_SIGNAL_ON)
+                {
+                    setPWMDutyCycle(arr_pwm_output[ARR_IDX_RIGHT], DUTY_CYCLE_OFF_BRIGHTNESS);
+                }
+                else
+                {
+                    if (gb_BRAKE_ON)
+                    {
+                        setPWMDutyCycle(arr_pwm_output[ARR_IDX_RIGHT], DUTY_CYCLE_FULL_BRIGHTNESS);
+                    }
+                    else
+                    {
+                        setPWMDutyCycle(arr_pwm_output[ARR_IDX_RIGHT], DUTY_CYCLE_LOW_BRIGHTNESS);
+                    }
+                }
+            }
+            
+            //brake input and gb_BRAKE_ON is handled by external interrupt 1
         }
-         
-        //RIGHT TURN
-        if (gb_BRAKE_ON || BIT_GET(LIGHT_INPUT_PORT, RIGHT_IN))
-        {
-            setPWMDutyCycle(arr_pwm_output[ARR_IDX_RIGHT], DUTY_CYCLE_FULL_BRIGHTNESS);
-        }
-        else
-        {
-            setPWMDutyCycle(arr_pwm_output[ARR_IDX_RIGHT], DUTY_CYCLE_LOW_BRIGHTNESS);
-        }
-        
-        //brake input and gb_BRAKE_ON is handled by external interrupt 1
     }
 }
 
