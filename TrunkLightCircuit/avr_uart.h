@@ -13,6 +13,11 @@
 ///This tells the maximum Rx buffer length for asyncronous Rx storage, Interrupts must be enabled to use this
 #define _UART_RX_BUFF_MAX_LEN 128
 
+#define STR_UINT8_LEN   3
+#define STR_UINT16_LEN  6
+#define STR_INT8_LEN    4
+#define STR_INT16_LEN   7
+
 typedef enum _eUARTCharSize
 {
     charlen5,
@@ -78,6 +83,10 @@ uint8_t UART_transmitString(char *str);
 uint8_t UART_transmitBytes(char *data, uint8_t len);
 void UART_TransmitByte(char data);
 void UART_transmitNewLine(void);
+void UART_transmitUint8(uint8_t val);
+void UART_transmitUint16(uint16_t val);
+void UART_transmitInt8(int8_t val);
+void UART_transmitInt16(int16_t val);
 
 /** reads multiple characters of Rx data. 
  * @NOTE This function will block till all "desired_len" data bytess are read

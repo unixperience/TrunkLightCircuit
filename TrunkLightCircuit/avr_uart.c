@@ -362,6 +362,39 @@ void UART_transmitNewLine(void)
 {
     UART_transmitBytes("\r\n",2);
 }
+
+void UART_transmitUint8(uint8_t val)
+{
+    char str[STR_UINT8_LEN];
+    
+    convertUint8ToChar(val, str);
+    UART_transmitBytes(str, STR_UINT8_LEN);
+}
+
+void UART_transmitUint16(uint16_t val)
+{
+    char str[STR_UINT16_LEN];
+    
+    convertUint16ToChar(val, str);
+    UART_transmitBytes(str, STR_UINT16_LEN);
+}
+
+void UART_transmitInt8(int8_t val)
+{
+    char str[STR_INT8_LEN];
+    
+    convertInt8ToChar(val, str);
+    UART_transmitBytes(str, STR_INT8_LEN);
+}
+
+void UART_transmitInt16(int16_t val)
+{
+    char str[STR_INT16_LEN];
+    
+    convertInt16ToChar(val, str);
+    UART_transmitBytes(str, STR_INT16_LEN);
+}
+
 /** This private support function will tell whether or not the USRT RX data Register (UDR)
  * has pending data or not. 
  * @NOTE this doesn't read the data, it just tells its presence

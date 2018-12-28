@@ -24,8 +24,8 @@ void init_uart_debug(void);
 /*                                 ADC                                  */
 /************************************************************************/
 #define FLASH_FREQ_INPUT_IDX 3
-#define FLASH_NUM_INPUT_IDX 4
-#define FLASH_CYCLES 30         ///this is an additional modulus on adc conversions, the flash
+#define FLASH_NUM_INPUT_IDX  4
+#define FDBK_CYCLES         60      ///this is an additional modulus on adc conversions, the flash
 //this is the order
 //notice we preserve ARR_IDX_xxxx ordering
 //FEEDBACK_LEFT, FEEDBACK_BRAKE, FEEDBACK_RIGHT, FREQ_FLASH, NUM_FLASH
@@ -35,6 +35,17 @@ const eADCInput arr_adc_input[5] = {ADC2, ADC3, ADC4, ADC0, ADC1};
 
 const eADCReference FLASH_REF = AVcc;
 const eADCReference FDBK_REF  = Internal_2p56V;
+
+typedef enum
+{
+    STATE_ADC_READ_FEEDBACK,
+    STATE_ADC_SWITCH_TO_5V_REF,
+    STATE_ADC_READ_FREQ_FLASHES,
+    STATE_ADC_READ_NUM_FLASHES,
+    STATE_ADC_SWITCH_TO_2p56V_REF,
+}ADC_STATE_MACHINE;
+
+volatile ADC_STATE_MACHINE ge_ADC_STATE;
 
 //feedback ref is 2.56V. Feedback resistor is 0.24Ohms. V=IR @1A: (1)*.24 = .24V
 // (2.56/1024) = 1 bit of adc resolution = .0025V
@@ -106,10 +117,17 @@ void init_timer2AsOneSecondTimer(void);
 #define DUTY_CYCLE_OFF_BRIGHTNESS    0 /// turns lights off used for turn signal and/or brake flashing
 
 bool gb_SEPARATE_FUNCTION_LIGHTS;
+/**This flag is used to indicate the brake light should be on, it is set/cleared by external
+ * interrupt1 handler and read by timer2 overflow handler
+ */
 volatile bool gb_BRAKE_ON;
 volatile bool gb_LEFT_TURN_SIGNAL_ON;
 volatile bool gb_RIGHT_TURN_SIGNAL_ON;
 volatile bool gb_OVERCURRENT_TRIPPED;
+
+volatile uint8_t gu8_MAX_NUM_FLASHES;
+volatile uint8_t gu8_FLASH_FREQ_PRESCALER;
+volatile uint8_t gu8_NUM_OCCURED_FLASHES;
 
 // for brake input
 ISR(INT1_vect);

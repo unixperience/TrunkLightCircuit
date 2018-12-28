@@ -8,22 +8,6 @@
 #include "main.h"
 
 /************************************************************************/
-/* these are from the olf program                                       */
-
-uint8_t gu8_MAX_NUM_FLASHES;
-uint8_t gu8_FLASH_FREQ_PRESCALER;
-
-/**This flag is used to indicate the brake light should be on, it is set/cleared by external
- * interrupt1 handler and read by timer2 overflow handler
- */
-bool gb_BRAKE_ON_FLAG;                 
-uint8_t gu8_NUM_OCCURED_FLASHES;
-bool gb_FLASH_SAMPLE_NOT_FREQ_SAMPLE;
-
-/************************************************************************/
-
-
-/************************************************************************/
 /*                                UART                                  */
 /************************************************************************/
 #pragma region uart
@@ -72,79 +56,121 @@ void init_adc(bool enable_interrupts)
 
 ISR(ADC_vect)
 {
-    //aia.test this needs a lot of work but only after you get the adc function done
-    
-    //with our ADC clock speed 125k/250k this should be ever 3-5 seconds
-    if (gb_NUM_ADC_CONVERSIONS == FLASH_CYCLES)
-    {
-        //if we change input voltages we need to trash some values,
-        
-        if (gb_FLASH_SAMPLE_NOT_FREQ_SAMPLE)
-        {
-            //switch from num_flashes to frequency
-            gb_FLASH_SAMPLE_NOT_FREQ_SAMPLE = false;
-            adc_select_input_channel(arr_adc_input[FLASH_FREQ_INPUT_IDX]);
-            
-            //flashes range from 2-20 (even numbers only); adc range 0-1024 so we convert
-            //          the range from 1-10, then double it
-            gu8_MAX_NUM_FLASHES = ((adc_read10_value() / 102.4) + 1) * 2;
-            
-            gb_NUM_ADC_CONVERSIONS = 0;
-        }
-        else
-        {
-            //switch from frequency to num_of_flashes
-            gb_FLASH_SAMPLE_NOT_FREQ_SAMPLE = true;
-            adc_select_input_channel(arr_adc_input[FLASH_NUM_INPUT_IDX]);
-            
-            //timer0 will control the speed of the brake light flashes from 1-10Hz
-            //a flash is both ON and OFF, so really the range is effectively be 2-20Hz
-            // Timer0 will overflow at a rate of 61.03Hz (w/1024 prescale)
-            //                                  244.14Hz (w/256 prescale)   << we used this in the end 
-            // so we will need an additional software prescaler to get to our desired
-            // frequency range
-            //
-            //           1024   |  256
-            // FREQ | PRESCALER | PRESCALER
-            //------+-----------+-----------
-            //  2   |  30       |   122.1
-            //  4   |  15       |   61.0
-            //  6   |  10       |   40.6
-            //  8   |  7.5      |   30.5
-            // 10   |  6        |   24.4
-            // 12   |  5        |   20.5
-            // 14   |  4.29     |   17.5
-            // 16   |  3.75     |   15.3
-            // 18   |  3.33     |   13.6    <--these changes get small
-            // 20   |  3        |   12.2
-            //flash freq 2-20Hz; adc range 0-1024 so we convert
-            // Since we want to effectively double our frequency rather than doing 244Hz/val_1_to_10
-            // we will do (244/2) / val_1_to_10 which is the same as our table
-            //           ovf_freq/  ((    val is 0-9    ) now its 1-10)
-            gu8_FLASH_FREQ_PRESCALER = 122 / ((adc_read10_value() / 1024) + 1);
-            
-            gb_NUM_ADC_CONVERSIONS = 0;
-        }
-    }
-    else
+    if (ge_ADC_STATE == STATE_ADC_READ_FEEDBACK)
     {
         //reads old value
         arr_adc_conv_val[gb_NUM_ADC_CONVERSIONS % 3] = adc_read10_value();
-        
+            
         //processes value
         if (arr_adc_conv_val[gb_NUM_ADC_CONVERSIONS % 3] > gbCURRENT_LIMIT)
         {
             disablePWMOutput(arr_pwm_output[gb_NUM_ADC_CONVERSIONS % 3]);
-            
+                
             //this value can only be set. it is only cleared by a system reset
             gb_OVERCURRENT_TRIPPED = true;
+                
+            #ifdef DEBUG
+            UART_transmitString("Overcurrent!\r\n\0");
+            #endif // DEBUG
         }
-        
+            
+        #ifdef DEBUG
+        UART_transmitString("ADC\0");
+        UART_transmitUint8(gb_NUM_ADC_CONVERSIONS % 3);
+        UART_transmitString(":\0");
+        UART_transmitUint16(arr_adc_conv_val[gb_NUM_ADC_CONVERSIONS % 3]);
+        #endif // DEBUG
+
         //moves to new input
         gb_NUM_ADC_CONVERSIONS++;
-        adc_select_input_channel(arr_adc_input[gb_NUM_ADC_CONVERSIONS % 3]);
         
+        //with our ADC clock speed 125k/250k this should be ever 3-5 seconds
+        if (gb_NUM_ADC_CONVERSIONS > FDBK_CYCLES)
+        {
+            //move to next state
+            adc_select_input_channel(arr_adc_input[ARR_IDX_FL_FREQ]);
+            adc_select_ref(FLASH_REF);
+            ge_ADC_STATE = STATE_ADC_SWITCH_TO_5V_REF;
+        }
+        else
+        {
+            adc_select_input_channel(arr_adc_input[gb_NUM_ADC_CONVERSIONS % 3]);
+        }
+            
         //start next conversion, but don't wait for completion
+        adc_start_conversion(false);
+    }
+    else if (ge_ADC_STATE == STATE_ADC_SWITCH_TO_5V_REF)
+    {
+        //dont read the value, its bad after switch sources
+        
+        ge_ADC_STATE = STATE_ADC_READ_FREQ_FLASHES;
+        //start next conversion, but don't wait for completion
+        adc_start_conversion(false);
+    }
+    else if (ge_ADC_STATE == STATE_ADC_READ_FREQ_FLASHES)
+    {
+        //timer0 will control the speed of the brake light flashes from 1-10Hz
+        //a flash is both ON and OFF, so really the range is effectively be 2-20Hz
+        // Timer0 will overflow at a rate of 61.03Hz (w/1024 prescale)
+        //                                  244.14Hz (w/256 prescale)   << we used this in the end
+        // so we will need an additional software prescaler to get to our desired
+        // frequency range
+        //
+        //           1024   |  256
+        // FREQ | PRESCALER | PRESCALER
+        //------+-----------+-----------
+        //  2   |  30       |   122.1
+        //  4   |  15       |   61.0
+        //  6   |  10       |   40.6
+        //  8   |  7.5      |   30.5
+        // 10   |  6        |   24.4
+        // 12   |  5        |   20.5
+        // 14   |  4.29     |   17.5
+        // 16   |  3.75     |   15.3
+        // 18   |  3.33     |   13.6    <--these changes get small
+        // 20   |  3        |   12.2
+        //flash freq 2-20Hz; adc range 0-1024 so we convert
+        // Since we want to effectively double our frequency rather than doing 244Hz/val_1_to_10
+        // we will do (244/2) / val_1_to_10 which is the same as our table
+        //           ovf_freq/  ((    val is 0-9    ) now its 1-10)
+        gu8_FLASH_FREQ_PRESCALER = 122 / ((adc_read10_value() / 1024) + 1);
+        
+        #ifdef DEBUG
+        UART_transmitString("fl freq:\0");
+        UART_transmitUint8(gu8_FLASH_FREQ_PRESCALER);
+        #endif // DEBUG
+        
+        //move to next state
+        adc_select_input_channel(arr_adc_input[ARR_IDX_FL_NUM]);
+        ge_ADC_STATE = STATE_ADC_READ_NUM_FLASHES;
+        adc_start_conversion(false);
+    }
+    else if (ge_ADC_STATE == STATE_ADC_READ_NUM_FLASHES)
+    {
+        //flashes range from 2-20 (even numbers only); adc range 0-1024 so we convert
+        //          the range from 1-10, then double it
+        gu8_MAX_NUM_FLASHES = ((adc_read10_value() / 102.4) + 1) * 2;
+        
+        #ifdef DEBUG
+        UART_transmitString("fl num:\0");
+        UART_transmitUint8(gu8_FLASH_FREQ_PRESCALER);
+        #endif // DEBUG
+        
+        //move to next state
+        ge_ADC_STATE = STATE_ADC_SWITCH_TO_2p56V_REF;
+        
+        gb_NUM_ADC_CONVERSIONS = 0;
+        adc_select_ref(FDBK_REF);
+        adc_select_input_channel(arr_adc_input[gb_NUM_ADC_CONVERSIONS % 3]);
+        adc_start_conversion(false);
+    }
+    else if (ge_ADC_STATE == STATE_ADC_SWITCH_TO_2p56V_REF)
+    {
+        //dont read the value, its bad after switch sources
+        
+        //move to next state
+        ge_ADC_STATE = STATE_ADC_READ_FEEDBACK;
         adc_start_conversion(false);
     }
 }
@@ -171,6 +197,9 @@ ISR(TIMER0_OVF_vect)
                 //if gu8_NUM_OCCURED_FLASHES is odd
                 if (gu8_NUM_OCCURED_FLASHES %2)
                 {
+                    #ifdef DEBUG
+                    UART_transmitString("flashing\0");
+                    #endif // DEBUG
                     setPWMDutyCycle(arr_pwm_output[ARR_IDX_BRAKE], DUTY_CYCLE_LOW_BRIGHTNESS);
                 }
                 else
@@ -180,6 +209,10 @@ ISR(TIMER0_OVF_vect)
             }
             else
             {
+                #ifdef DEBUG
+                UART_transmitString("solid\0");
+                #endif // DEBUG
+                
                 //if we already flashed, just stay solid
                 setPWMDutyCycle(arr_pwm_output[ARR_IDX_BRAKE], DUTY_CYCLE_FULL_BRIGHTNESS);
             } 
@@ -233,6 +266,10 @@ ISR(TIMER2_OVF_vect)
             //up, we can set the turn signal flag low
             gb_LEFT_TURN_SIGNAL_ON = false;
             gb_RIGHT_TURN_SIGNAL_ON = false;
+            
+            #ifdef DEBUG
+            UART_transmitString("Turn sig off\r\n\0");
+            #endif // DEBUG
         }
         else
         {
@@ -337,7 +374,7 @@ ISR(INT1_vect)
     // error and will quickly be rectified
     if (BIT_SET(LIGHT_INPUT_PORT,BRAKE_IN))
     {
-        gb_BRAKE_ON_FLAG = true;
+        gb_BRAKE_ON = true;
         
         //this is for the software pre-scaler in ISR(TIMER0_OVF_VECT), which is only
         //used when gb_SEPERATE_FUNCTION_LIGHTS == true
@@ -347,10 +384,18 @@ ISR(INT1_vect)
         //number of times every time the brake is pressed, so we reset it. its used in
         //ISR(TIMER0_OVF_VECT)
         gu8_NUM_OCCURED_FLASHES = 0;
+        
+        #ifdef DEBUG
+        UART_transmitString("Brake on\r\n\0");
+        #endif // DEBUG
     }
     else
     {
-        gb_BRAKE_ON_FLAG = false;
+        gb_BRAKE_ON = false;
+        
+        #ifdef DEBUG
+        UART_transmitString("Brake off\r\n\0");
+        #endif // DEBUG
     }
 }
 
@@ -366,6 +411,7 @@ void init_external_interupts(void)
 void init_globals(void)
 {
     gb_NUM_ADC_CONVERSIONS = 0;
+    ge_ADC_STATE = STATE_ADC_SWITCH_TO_5V_REF;
     
     //the temptation might be to set these flags in a bit field in a single 8 bit register
     //but since they are set by multiple interrupts, we lessen the probability of data
@@ -376,6 +422,9 @@ void init_globals(void)
     gb_RIGHT_TURN_SIGNAL_ON = false;
     gb_OVERCURRENT_TRIPPED = false;
 
+    gu8_MAX_NUM_FLASHES =  4;
+    gu8_FLASH_FREQ_PRESCALER = 4;
+    
     gu8_NUM_TIMER0_OVF = 0;
     gu8_NUM_TIMER1_OVF = 0;
     gu8_NUM_TIMER2_OVF = 0;
@@ -430,6 +479,7 @@ void init_IO(void)
  */
 int main(void)
 {
+    //in the future you may use these
     char ret_data[_UART_RX_BUFF_MAX_LEN] = {0};
     char int_str[7] = {0};
     uint8_t ret_len;
@@ -440,7 +490,10 @@ int main(void)
     2. adc (must be done before timers)
     3. timers    
     */
+#ifdef DEBUG
     init_uart_debug();
+#endif // DEBUG
+
     init_IO();
     init_globals();
     init_external_interupts();
@@ -481,6 +534,12 @@ int main(void)
     adc_start_conversion(true);
     brake_light_test_reading = adc_read10_value();
     
+    #ifdef DEBUG
+    UART_transmitString("Brake value:\0");
+    UART_transmitUint16(brake_light_test_reading);
+    UART_transmitNewLine();
+    #endif // DEBUG
+    
     //init adc for program use, with interrupts
     init_adc(true);
     
@@ -488,10 +547,16 @@ int main(void)
     if (brake_light_test_reading >= FEEDBACK_100_mAMP)
     {
         gb_SEPARATE_FUNCTION_LIGHTS = true;
+        #ifdef DEBUG
+        UART_transmitString("Detected Separate fn\r\n\0");
+        #endif // DEBUG
     }
     else
     {
         gb_SEPARATE_FUNCTION_LIGHTS = false;
+        #ifdef DEBUG
+        UART_transmitString("Detected Integrated fn\r\n\0");
+        #endif // DEBUG
     }
     
     if (gb_SEPARATE_FUNCTION_LIGHTS)
@@ -548,17 +613,22 @@ int main(void)
             if (BIT_GET(LIGHT_INPUT_PORT, LEFT_IN))
             {
                 enablePWMOutput(arr_pwm_output[ARR_IDX_LEFT]);
+                #ifdef DEBUG
+                UART_transmitString("LEFT on\r\n\0");
+                #endif // DEBUG
             }
             else
             {
                 disablePWMOutput(arr_pwm_output[ARR_IDX_LEFT]);
-                
             }
             
             //RIGHT TURN
             if (BIT_GET(LIGHT_INPUT_PORT, RIGHT_IN))
             {
                 enablePWMOutput(arr_pwm_output[ARR_IDX_RIGHT]);
+                #ifdef DEBUG
+                UART_transmitString("RIGHT on\r\n\0");
+                #endif // DEBUG
             }
             else
             {
@@ -588,6 +658,10 @@ int main(void)
                 //you need the watchdog timer
                 gu8_NUM_TIMER2_OVF = 0;
                 gb_LEFT_TURN_SIGNAL_ON = true;
+                
+                #ifdef DEBUG
+                UART_transmitString("Left on\r\n\0");
+                #endif // DEBUG
             }
             else
             {
@@ -615,6 +689,10 @@ int main(void)
                 //you need the watchdog timer
                 gu8_NUM_TIMER2_OVF = 0;
                 gb_RIGHT_TURN_SIGNAL_ON = true;
+                
+                #ifdef DEBUG
+                UART_transmitString("Right on\r\n\0");
+                #endif // DEBUG
             }
             else
             {
