@@ -42,7 +42,7 @@ void init_uart_debug(void)
 /*                                 ADC                                  */
 /************************************************************************/
 #pragma region adc
-void init_adc()
+void init_adc(bool enable_interrupts)
 {
     //For this program we need adc inputs 0-5
     //clear all registers and configuration
@@ -60,8 +60,13 @@ void init_adc()
     #endif
 
     adc_right_shift_result();
-    adc_enableFreeRunningMode();
-    adc_enable_interrupt_on_conversion();
+    
+    if (enable_interrupts)
+    {
+        adc_enableFreeRunningMode();
+        adc_enable_interrupt_on_conversion();
+    }    
+    
     adc_enable();
 }
 
@@ -130,6 +135,9 @@ ISR(ADC_vect)
         if (arr_adc_conv_val[gb_NUM_ADC_CONVERSIONS % 3] > gbCURRENT_LIMIT)
         {
             disablePWMOutput(arr_pwm_output[gb_NUM_ADC_CONVERSIONS % 3]);
+            
+            //this value can only be set. it is only cleared by a system reset
+            gb_OVERCURRENT_TRIPPED = true;
         }
         
         //moves to new input
@@ -183,6 +191,30 @@ ISR(TIMER0_OVF_vect)
     }    
 }
 
+/** this interrupt is used to flash the status led. As long as over current
+ *wasn't detecteed. Over current will just light thee LED solid red
+*/
+ISR(TIMER1_OVF_vect)
+{
+    if (!gb_OVERCURRENT_TRIPPED)
+    {
+        if (gu8_NUM_TIMER1_OVF < TIMER1_ADDTL_4Hz_PRESCALE)
+        {
+            gu8_NUM_TIMER1_OVF++;
+        }
+        else
+        {
+            //toggle led
+            LED_OUTPUT_PORT ^= (1 << LED_OUTPUT_PIN);
+            gu8_NUM_TIMER1_OVF = 0;
+        }
+    }
+    else
+    {
+        BIT_SET(LED_OUTPUT_PORT, LED_OUTPUT_PIN);
+    }        
+}    
+
 /** This interrupt is used as a 1 second "watchdog" timer for turn signals In the 
  *  combined function lights. When a turn signal is on, it does not perform brake
  *  duties till 1 second after the signal has been disabled. 
@@ -222,6 +254,11 @@ void init_timers(void)
     init_timer0();
     init_timer1();
     init_timer2();
+    
+    //the status LED will be controlled by the turn signal overflow interrupt
+    //this is because no matter if we are in separate function mode or not, 
+    //this time is always running
+    enableTimerOverflowInterrupt(etimer_1);
 }
 
 void init_timer0(void)
@@ -337,8 +374,10 @@ void init_globals(void)
     gb_BRAKE_ON = false;
     gb_LEFT_TURN_SIGNAL_ON = false;
     gb_RIGHT_TURN_SIGNAL_ON = false;
+    gb_OVERCURRENT_TRIPPED = false;
 
     gu8_NUM_TIMER0_OVF = 0;
+    gu8_NUM_TIMER1_OVF = 0;
     gu8_NUM_TIMER2_OVF = 0;
 }
 
@@ -399,12 +438,15 @@ int main(void)
     /*initialization order
     1. uart
     2. adc (must be done before timers)
-    3. timers
+    3. timers    
     */
     init_uart_debug();
     init_IO();
     init_globals();
     init_external_interupts();
+    //no interrupts
+    init_adc(false);
+    init_timers();
         
     //enable global interrupts
     sei();
@@ -438,6 +480,9 @@ int main(void)
     
     adc_start_conversion(true);
     brake_light_test_reading = adc_read10_value();
+    
+    //init adc for program use, with interrupts
+    init_adc(true);
     
     //if we have at least 100mA flowing, we know we have a brake light connected
     if (brake_light_test_reading >= FEEDBACK_100_mAMP)

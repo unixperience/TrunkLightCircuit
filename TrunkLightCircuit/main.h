@@ -51,7 +51,7 @@ const uint16_t gbCURRENT_LIMIT = FEEDBACK_1_AMP;
 static volatile uint16_t arr_adc_conv_val[3] = {0};
 static volatile uint8_t gb_NUM_ADC_CONVERSIONS = 0;
 
-void init_adc();
+void init_adc(bool enable_interrupts);
 ISR(ADC_vect);
 
 /************************************************************************/
@@ -59,17 +59,22 @@ ISR(ADC_vect);
 /************************************************************************/
 #define TIMER0_ADDTL_PRESCALE 3
 // 16MHz / (8_bit_max * prescaler) = 16MHz / (256 * 1024) = 61.03Hz
+// 61.03 / 4 Hz = ~15
+#define TIMER1_ADDTL_4Hz_PRESCALE 15
+// 16MHz / (8_bit_max * prescaler) = 16MHz / (256 * 1024) = 61.03Hz
 //  to get down to 1 second we need to wait 61 ovf before it starts
 #define TIMER2_ADDTL_1_SEC_PRESCALE 61
 
 volatile uint8_t gu8_NUM_TIMER0_OVF;
+volatile uint8_t gu8_NUM_TIMER1_OVF;
 volatile uint8_t gu8_NUM_TIMER2_OVF;
 
 //LEFT, BRAKE, RIGHT
 const ePWM_OUTPUT arr_pwm_output[3] = {epwm_1a, epwm_2, epwm_1b};
     
-ISR(TIMER0_OVF_vect);
-ISR(TIMER2_OVF_vect);
+ISR(TIMER0_OVF_vect);   /** for LED flashing */
+ISR(TIMER1_OVF_vect);   /** for status LED */
+ISR(TIMER2_OVF_vect);   /** for Turn signal flag*/
 
 void init_timers(void);
 void init_timer0(void);
@@ -101,9 +106,10 @@ void init_timer2AsOneSecondTimer(void);
 #define DUTY_CYCLE_OFF_BRIGHTNESS    0 /// turns lights off used for turn signal and/or brake flashing
 
 bool gb_SEPARATE_FUNCTION_LIGHTS;
-bool gb_BRAKE_ON;
-bool gb_LEFT_TURN_SIGNAL_ON;
-bool gb_RIGHT_TURN_SIGNAL_ON;
+volatile bool gb_BRAKE_ON;
+volatile bool gb_LEFT_TURN_SIGNAL_ON;
+volatile bool gb_RIGHT_TURN_SIGNAL_ON;
+volatile bool gb_OVERCURRENT_TRIPPED;
 
 // for brake input
 ISR(INT1_vect);
