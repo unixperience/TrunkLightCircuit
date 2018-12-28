@@ -379,17 +379,6 @@ void init_IO(void)
     BIT_CLEAR(LED_OUTPUT_PORT, LED_OUTPUT_PIN);
 }
 
-
-void init(void)
-{
-    init_IO();
-    init_globals();
-    init_external_interupts();
-    
-    //enable global interrupts
-    sei();
-}
-
 /** @brief Writes the current position of the cursor
  *         into the arguments row and col.
  *	Just a regular detailed description goes here
@@ -405,19 +394,22 @@ int main(void)
     char ret_data[_UART_RX_BUFF_MAX_LEN] = {0};
     char int_str[7] = {0};
     uint8_t ret_len;
-    //0-input
-    //1-output
-    DDRB = 0xFF;
-    PORTB = 0xAA;
-    
-    
-    init_uart_debug();
+    uint16_t brake_light_test_reading;
     
     /*initialization order
     1. uart
     2. adc (must be done before timers)
     3. timers
-    
+    */
+    init_uart_debug();
+    init_IO();
+    init_globals();
+    init_external_interupts();
+        
+    //enable global interrupts
+    sei();
+
+    /*    
     now set pwm of brake very low,
     monitor voltage levels, is there current flowing?
     if yes
@@ -433,8 +425,29 @@ int main(void)
         do both turn signal and brake.... i think for clarity this also disables
         all flashing functionality???? 
    
-   now that we've determined system type we can go to work with regular program
-   */
+    now that we've determined system type we can go to work with regular program
+    */
+    setPWMDutyCycle(arr_pwm_output[ARR_IDX_BRAKE], DUTY_CYCLE_FULL_BRIGHTNESS);
+    adc_select_ref(FDBK_REF);
+    adc_select_input_channel(arr_adc_input[ARR_IDX_FL_FREQ]);
+    _delay_ms(10);
+    //adc start conversion and wait for result, normally the first one is inaccurate
+    //so we wont even check it
+    adc_start_conversion(true);
+    _delay_ms(800);
+    
+    adc_start_conversion(true);
+    brake_light_test_reading = adc_read10_value();
+    
+    //if we have at least 100mA flowing, we know we have a brake light connected
+    if (brake_light_test_reading >= FEEDBACK_100_mAMP)
+    {
+        gb_SEPARATE_FUNCTION_LIGHTS = true;
+    }
+    else
+    {
+        gb_SEPARATE_FUNCTION_LIGHTS = false;
+    }
     
     if (gb_SEPARATE_FUNCTION_LIGHTS)
     {

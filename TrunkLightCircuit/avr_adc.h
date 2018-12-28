@@ -14,7 +14,7 @@
 
 #define ADC_INPUT_FREQ      PINC1
 #define ADC_INPUT_NUM_FLASH PINC0
-#define MASK_10_BIT     0X03FF
+#define MASK_10_BIT     0x03FF
 
 typedef enum _eADCPrescaleValues
 {

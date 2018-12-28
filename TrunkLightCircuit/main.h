@@ -29,13 +29,24 @@ void init_uart_debug(void);
 //this is the order
 //notice we preserve ARR_IDX_xxxx ordering
 //FEEDBACK_LEFT, FEEDBACK_BRAKE, FEEDBACK_RIGHT, FREQ_FLASH, NUM_FLASH
+#define ARR_IDX_FL_FREQ 3
+#define ARR_IDX_FL_NUM  4
 const eADCInput arr_adc_input[5] = {ADC2, ADC3, ADC4, ADC0, ADC1};
 
 const eADCReference FLASH_REF = AVcc;
-const eADCReference FDBK_RED  = Internal_2p56V;
+const eADCReference FDBK_REF  = Internal_2p56V;
+
+//feedback ref is 2.56V. Feedback resistor is 0.24Ohms. V=IR @1A: (1)*.24 = .24V
+// (2.56/1024) = 1 bit of adc resolution = .0025V
+//solving I = V/R = .0025V/.24Ohm = 10.4mA per bit 
+// V@1A / adc_resolution = .24/.0025 = 96 = adc_reading at 1amp
+// 100mA = 9.6
+#define FEEDBACK_1_AMP      96
+#define FEEDBACK_1p5_AMP    144
+#define FEEDBACK_100_mAMP   9
 
 //adc input
-const uint16_t gbCURRENT_LIMIT = 50;
+const uint16_t gbCURRENT_LIMIT = FEEDBACK_1_AMP;
 
 static volatile uint16_t arr_adc_conv_val[3] = {0};
 static volatile uint8_t gb_NUM_ADC_CONVERSIONS = 0;
