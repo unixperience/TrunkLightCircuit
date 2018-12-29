@@ -18,6 +18,9 @@
 #define STR_INT8_LEN    4
 #define STR_INT16_LEN   7
 
+#define CIRCULAR_BUFFER 1   //without circular buffer you save 100 bytes of progmem and 2 of datamem
+#define ECHO_ON 1
+
 typedef enum _eUARTCharSize
 {
     charlen5,
@@ -112,6 +115,10 @@ void UART_ReceiveByte(char* ret_data);
  */
 void UART_ReadRxBuff(char* ret_data, uint8_t* ret_data_len);
 
+#ifdef CIRCULAR_BUFFER
+void UART_ReadLineRxBuff(char* ret_data, uint8_t* ret_data_len);
+#endif // CIRCULAR_BUFFER
+
 /**  This function will convert a uint8_t value into a 3 digit
  *  string. This string will always be 3 chars long.
  @PARAM in_val [input] the value to convert
@@ -145,4 +152,8 @@ void convertInt8ToChar(int8_t in_val, char* output_4_chars);
  @NOTE the calling code must declare the appropriately sized memory for the output
  */
 void convertInt16ToChar(int16_t in_val, char* output_6_chars);
+
+//////////////////////////////////////////////////////////////////////////
+//this might be a separate strng library
+
 #endif /* AVR_UART_H_ */

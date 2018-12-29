@@ -43,6 +43,7 @@ typedef enum
     STATE_ADC_READ_FREQ_FLASHES,
     STATE_ADC_READ_NUM_FLASHES,
     STATE_ADC_SWITCH_TO_2p56V_REF,
+    STATE_ADC_TEST,
 }ADC_STATE_MACHINE;
 
 volatile ADC_STATE_MACHINE ge_ADC_STATE;
@@ -69,9 +70,9 @@ ISR(ADC_vect);
 /*                               TIMERS                                 */
 /************************************************************************/
 #define TIMER0_ADDTL_PRESCALE 3
-// 16MHz / (8_bit_max * prescaler) = 16MHz / (256 * 1024) = 61.03Hz
-// 61.03 / 4 Hz = ~15
-#define TIMER1_ADDTL_4Hz_PRESCALE 15
+// 16MHz / (8_bit_max * prescaler) = 16MHz / (256 * 64) = 976.5625Hz
+// 976 / 4 Hz = ~122
+#define TIMER1_ADDTL_4Hz_PRESCALE 244
 // 16MHz / (8_bit_max * prescaler) = 16MHz / (256 * 1024) = 61.03Hz
 //  to get down to 1 second we need to wait 61 ovf before it starts
 #define TIMER2_ADDTL_1_SEC_PRESCALE 61
@@ -97,6 +98,14 @@ void init_timer2AsOneSecondTimer(void);
 /************************************************************************/
 /*                               MAIN                                   */
 /************************************************************************/
+
+typedef enum
+{
+    DebugDisabled,
+    DebugADC,
+    DebugUART,
+}eDEBUG_MODES;
+
 #define ARR_IDX_LEFT    0
 #define ARR_IDX_BRAKE   1
 #define ARR_IDX_RIGHT   2
@@ -116,7 +125,6 @@ void init_timer2AsOneSecondTimer(void);
 #define DUTY_CYCLE_LOW_BRIGHTNESS   15 /// used for running lights
 #define DUTY_CYCLE_OFF_BRIGHTNESS    0 /// turns lights off used for turn signal and/or brake flashing
 
-bool gb_SEPARATE_FUNCTION_LIGHTS;
 /**This flag is used to indicate the brake light should be on, it is set/cleared by external
  * interrupt1 handler and read by timer2 overflow handler
  */
@@ -125,9 +133,10 @@ volatile bool gb_LEFT_TURN_SIGNAL_ON;
 volatile bool gb_RIGHT_TURN_SIGNAL_ON;
 volatile bool gb_OVERCURRENT_TRIPPED;
 
-volatile uint8_t gu8_MAX_NUM_FLASHES;
-volatile uint8_t gu8_FLASH_FREQ_PRESCALER;
+volatile uint16_t gu8_MAX_NUM_FLASHES;
+volatile uint16_t gu8_FLASH_FREQ_PRESCALER;
 volatile uint8_t gu8_NUM_OCCURED_FLASHES;
+volatile uint16_t gu16_adc_test_val;
 
 // for brake input
 ISR(INT1_vect);

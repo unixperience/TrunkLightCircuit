@@ -9,7 +9,7 @@
 #ifndef GLOBAL_H_
 #define GLOBAL_H_
 
-#define F_CPU  8000000UL
+#define F_CPU  16000000UL
 #include <util/delay.h>
 #include <avr/io.h> //this should work but for some reason its not 
 //  it should automatically see I chose atmega8A and use the iom8a.h 

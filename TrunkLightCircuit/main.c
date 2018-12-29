@@ -38,7 +38,7 @@ void init_adc(bool enable_interrupts)
     #if (F_CPU == 8000000UL)
     //this is F_CPU / prescale = 8MHz/128 = 250kHz
     adc_set_prescale(clk_over_128);
-    #elif if (F_CPU == 16000000UL)
+    #elif (F_CPU == 16000000UL)
     //this is F_CPU / prescale = 8MHz/128 = 250kHz
     adc_set_prescale(clk_over_64);
     #endif
@@ -79,6 +79,7 @@ ISR(ADC_vect)
         UART_transmitUint8(gb_NUM_ADC_CONVERSIONS % 3);
         UART_transmitString(":\0");
         UART_transmitUint16(arr_adc_conv_val[gb_NUM_ADC_CONVERSIONS % 3]);
+        UART_transmitNewLine();
         #endif // DEBUG
 
         //moves to new input
@@ -134,11 +135,12 @@ ISR(ADC_vect)
         // Since we want to effectively double our frequency rather than doing 244Hz/val_1_to_10
         // we will do (244/2) / val_1_to_10 which is the same as our table
         //           ovf_freq/  ((    val is 0-9    ) now its 1-10)
-        gu8_FLASH_FREQ_PRESCALER = 122 / ((adc_read10_value() / 1024) + 1);
+        gu8_FLASH_FREQ_PRESCALER = adc_read10_value(); //aia.teset 122.0 / ((adc_read10_value() / 102.4) + 1);
         
         #ifdef DEBUG
         UART_transmitString("fl freq:\0");
         UART_transmitUint8(gu8_FLASH_FREQ_PRESCALER);
+        UART_transmitNewLine();
         #endif // DEBUG
         
         //move to next state
@@ -150,11 +152,12 @@ ISR(ADC_vect)
     {
         //flashes range from 2-20 (even numbers only); adc range 0-1024 so we convert
         //          the range from 1-10, then double it
-        gu8_MAX_NUM_FLASHES = ((adc_read10_value() / 102.4) + 1) * 2;
+        gu8_MAX_NUM_FLASHES = adc_read10_value(); // aia.test ((adc_read10_value() / 102.4) + 1) * 2;
         
         #ifdef DEBUG
         UART_transmitString("fl num:\0");
-        UART_transmitUint8(gu8_FLASH_FREQ_PRESCALER);
+        UART_transmitUint8(gu8_MAX_NUM_FLASHES);
+        UART_transmitNewLine();
         #endif // DEBUG
         
         //move to next state
@@ -171,6 +174,17 @@ ISR(ADC_vect)
         
         //move to next state
         ge_ADC_STATE = STATE_ADC_READ_FEEDBACK;
+        adc_start_conversion(false);
+    }
+    else if (ge_ADC_STATE == STATE_ADC_TEST)
+    {
+        //This isn't a regular runtime state, its just for setup and testing
+        gu16_adc_test_val = adc_read10_value(); 
+         
+        UART_transmitString("adc:\0");
+        UART_transmitUint8(gu16_adc_test_val);
+        UART_transmitNewLine();
+
         adc_start_conversion(false);
     }
 }
@@ -225,8 +239,8 @@ ISR(TIMER0_OVF_vect)
 }
 
 /** this interrupt is used to flash the status led. As long as over current
- *wasn't detecteed. Over current will just light thee LED solid red
-*/
+ * wasn't detecteed. Over current will just light thee LED solid red
+ */
 ISR(TIMER1_OVF_vect)
 {
     if (!gb_OVERCURRENT_TRIPPED)
@@ -328,7 +342,7 @@ void init_timer1(void)
     
     //sets prescaler to 64 F_CPU = 16MHz
     //no real reason for this value, as long as its PWM we are fine
-    // 16MHz / (8_bit_max * prescaler) = 16MHz / (256 * 64) = 488.3Hz
+    // 16MHz / (8_bit_max * prescaler) = 16MHz / (256 * 64) = 976.5625Hz
     SetTimerPrescale(etimer_1, tmr_prscl_clk_over_64);
 }
 
@@ -346,7 +360,7 @@ void init_timer2(void)
     
     //sets prescaler to 64 F_CPU = 16MHz
     //no real reason for this value, as long as its PWM we are fine
-    // 16MHz / (8_bit_max * prescaler) = 16MHz / (256 * 64) = 488.3Hz
+    // 16MHz / (8_bit_max * prescaler) = 16MHz / (256 * 64) = 976.5625Hz
     SetTimerPrescale(etimer_2, tmr_prscl_clk_over_64);
 }
 
@@ -416,7 +430,6 @@ void init_globals(void)
     //the temptation might be to set these flags in a bit field in a single 8 bit register
     //but since they are set by multiple interrupts, we lessen the probability of data
     //corruption by keeping them separate
-    gb_SEPARATE_FUNCTION_LIGHTS = false;
     gb_BRAKE_ON = false;
     gb_LEFT_TURN_SIGNAL_ON = false;
     gb_RIGHT_TURN_SIGNAL_ON = false;
@@ -481,9 +494,11 @@ int main(void)
 {
     //in the future you may use these
     char ret_data[_UART_RX_BUFF_MAX_LEN] = {0};
-    char int_str[7] = {0};
     uint8_t ret_len;
     uint16_t brake_light_test_reading;
+    bool separate_function_lights;
+    bool debug_mode_enabled = false;
+    eDEBUG_MODES curr_debug_mode;
     
     /*initialization order
     1. uart
@@ -492,6 +507,8 @@ int main(void)
     */
 #ifdef DEBUG
     init_uart_debug();
+    
+    UART_transmitString("Trunk Light FW starting v 1.0\r\n\0");
 #endif // DEBUG
 
     init_IO();
@@ -508,13 +525,13 @@ int main(void)
     now set pwm of brake very low,
     monitor voltage levels, is there current flowing?
     if yes
-    gb_SEPARATE_FUNCTION_LIGHTS = true
+    separate_function_lights = true
         we have 3 light system
         we have a brake light circuti separate from the turn signals
         this will use flashing for brakes 100% gauranteed
     else
         we have two light system
-        gb_SEPARATE_FUNCTION_LIGHTS = false
+        separate_function_lights = false
         a) disable brake output
         in a two light system we have only left and right lights. so they must
         do both turn signal and brake.... i think for clarity this also disables
@@ -546,20 +563,20 @@ int main(void)
     //if we have at least 100mA flowing, we know we have a brake light connected
     if (brake_light_test_reading >= FEEDBACK_100_mAMP)
     {
-        gb_SEPARATE_FUNCTION_LIGHTS = true;
+        separate_function_lights = true;
         #ifdef DEBUG
         UART_transmitString("Detected Separate fn\r\n\0");
         #endif // DEBUG
     }
     else
     {
-        gb_SEPARATE_FUNCTION_LIGHTS = false;
+        separate_function_lights = false;
         #ifdef DEBUG
         UART_transmitString("Detected Integrated fn\r\n\0");
         #endif // DEBUG
     }
     
-    if (gb_SEPARATE_FUNCTION_LIGHTS)
+    if (separate_function_lights)
     {
         // here we have a separate brake and turn signals. The turn signals only
         // need to handle themselves based on current input values
@@ -598,9 +615,153 @@ int main(void)
         setPWMDutyCycle(arr_pwm_output[ARR_IDX_RIGHT], DUTY_CYCLE_LOW_BRIGHTNESS);
     }        
     
+    //start adc state machine
+    //adc_start_conversion(false);
+
     while (1)
     {
-        if (gb_SEPARATE_FUNCTION_LIGHTS)
+        UART_ReadRxBuff(ret_data, &ret_len);
+        
+        if (ret_len > 0)
+        {
+            if (ret_data[0] == 'd')
+            {
+                UART_transmitString("Entering debug mode\r\n\0");
+                debug_mode_enabled = true;
+                curr_debug_mode = DebugDisabled;
+            }
+            
+            if (debug_mode_enabled)
+            {
+                if (curr_debug_mode == DebugDisabled)
+                {
+                    if (ret_data[0] == 'Q')
+                    {
+                        UART_transmitString("Leaving debug mode, reset device for normal operation\r\n\0");
+                        debug_mode_enabled = false;
+                    }
+                    else if (ret_data[0] == 'a')
+                    {
+                        curr_debug_mode = DebugADC;
+                        UART_transmitString("Starting ADC debug mode");
+                    
+                        adc_disable_interrupt_on_conversion();
+                        ge_ADC_STATE = STATE_ADC_TEST;
+                        adc_select_ref(AVcc);
+                        //adc_enable_interrupt_on_conversion();                    
+                    
+                        adc_start_conversion(false);
+                    }
+                    else if (ret_data[0] == 'u')
+                    {
+                        curr_debug_mode = DebugUART;
+                        UART_transmitString("Starting uart debug mode");
+                    }
+                }//if (curr_debug_mode == DebugDisabled)
+                else if (curr_debug_mode == DebugADC)
+                {
+                    if (ret_data[0] == 'Q')
+                    {
+                        UART_transmitString("Leaving adc debug mode\r\n\0");
+                        curr_debug_mode = DebugDisabled;
+                        
+                        adc_disable_interrupt_on_conversion();
+                    }
+                    else if (ret_data[0] == 'g')
+                    {
+                        UART_transmitString("Displaying ground\r\n\0");
+                        adc_select_input_channel(GND_0V_mega8);
+                    }
+                    else if (ret_data[0] == 't')
+                    {
+                        UART_transmitString("Displaying 1.30V reference\r\n\0");
+                        adc_select_input_channel(REF_1P30v_mega8);
+                    }
+                    else if (ret_data[0] == 'r')
+                    {
+                        if (ret_data[1] == '5')
+                        {
+                            UART_transmitString("Setting Reference to 5V Vcc\r\n\0");
+                            adc_select_ref(AVcc);
+                        }
+                        if (ret_data[1] == '2')
+                        {
+                            UART_transmitString("Setting reference to 2.56V\r\n\0");
+                            adc_select_ref(Internal_2p56V);
+                        }
+                    }
+                    else if (ret_data[0] == '0')
+                    {
+                        UART_transmitString("Displaying Channel 0\r\n\0");
+                        adc_select_input_channel(ADC0);
+                        adc_start_conversion(true);
+                        brake_light_test_reading = adc_read10_value();
+                        UART_transmitUint16(brake_light_test_reading);
+                        UART_transmitNewLine();
+                        
+                    }
+                    else if (ret_data[0] == '1')
+                    {
+                        UART_transmitString("Displaying Channel 1\r\n\0");
+                        adc_select_input_channel(ADC1);
+                        adc_start_conversion(true);
+                        brake_light_test_reading = adc_read10_value();
+                        UART_transmitUint16(brake_light_test_reading);
+                        UART_transmitNewLine();
+                    }
+                    else if (ret_data[0] == '2')
+                    {
+                        UART_transmitString("Displaying Channel 2\r\n\0");
+                        adc_select_input_channel(ADC2);
+                        adc_start_conversion(true);
+                        brake_light_test_reading = adc_read10_value();
+                        UART_transmitUint16(brake_light_test_reading);
+                        UART_transmitNewLine();
+                    }
+                    else if (ret_data[0] == '3')
+                    {
+                        UART_transmitString("Displaying Channel 3\r\n\0");
+                        adc_select_input_channel(ADC3);
+                        adc_start_conversion(true);
+                        brake_light_test_reading = adc_read10_value();
+                        UART_transmitUint16(brake_light_test_reading);
+                        UART_transmitNewLine();
+                    }
+                    else if (ret_data[0] == '4')
+                    {
+                        UART_transmitString("Displaying Channel 4\r\n\0");
+                        adc_select_input_channel(ADC4);
+                        adc_start_conversion(true);
+                        brake_light_test_reading = adc_read10_value();
+                        UART_transmitUint16(brake_light_test_reading);
+                        UART_transmitNewLine();
+                    }
+                }//else if (curr_debug_mode == DebugADC)
+            }//if (debug_mode_enabled)
+            
+//             
+//             adc_select_input_channel(arr_adc_input[ARR_IDX_FL_FREQ]);
+//             UART_transmitString("sc\r\n\0");
+//             if (!adc_start_conversion(true))
+//             UART_transmitString("ADC ERROR not enabled\0");
+//                             
+//             adc_val = adc_read10_value();
+//                             
+//             UART_transmitString("FREQ:\0");
+//             UART_transmitUint16(adc_val);
+//                             
+//             adc_select_input_channel(arr_adc_input[ARR_IDX_FL_NUM]);
+//             adc_start_conversion(true);
+//             adc_val = adc_read10_value();
+//                             
+//             UART_transmitString("     NUM:\0");
+//             UART_transmitUint16(adc_val);
+                            
+            UART_transmitNewLine();
+            
+        }//end ret_len > 0
+        
+        if (separate_function_lights)
         {
             // here we have a separate brake and turn signals. The turn signals only
             // need to handle themselves based on current input values,
@@ -636,8 +797,9 @@ int main(void)
             }
             
             //BRAKE handled by interrupts (ext1 and timer0 overflow)
-        }
-        else
+            
+        }//if (separate_function_lights)
+        else //if (!separate_function_lights)
         {
             // this is where we only have a left light and a right light, the must handle both
             // brakes and turn signals.
@@ -714,7 +876,9 @@ int main(void)
             }
             
             //brake input and gb_BRAKE_ON is handled by external interrupt 1
-        }
-    }
-}
+            
+        }//end else (!seperate_function_lights)
+    }//end while(1)
+    
+}//main
 

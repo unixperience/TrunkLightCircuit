@@ -22,7 +22,9 @@
                               /// URSEL bit (MSB 7) set since this register is shared with UBRRH'
                              
 static volatile char rcv_buff[_UART_RX_BUFF_MAX_LEN] = {0};
-static volatile uint8_t rcv_buff_len = 0;
+static volatile uint16_t rcv_buff_len = 0;
+static volatile uint8_t rx_buff_start_idx = 0;
+static volatile uint8_t rx_buff_end_idx = 0;
 
 /************************************************************************/
 /* UART CONFIGURATION FUNCTIONS                                         */
@@ -324,8 +326,6 @@ uint8_t UART_transmitString(char *str)
         bytes_sent++;
     }
     
-    UART_transmitNewLine();
-    
     return bytes_sent;
 }
 
@@ -435,6 +435,167 @@ void UART_ReceiveByte(char* ret_data)
     UART_ReceievBytes(ret_data, 1);
 }
 
+#if CIRCULAR_BUFFER
+
+ISR(USART_RXC_vect)
+{
+    //uint8_t rx_err_flags;
+    uint8_t rx_dump_register;
+  
+    if (rcv_buff_len >= _UART_RX_BUFF_MAX_LEN)
+    {
+        //we have to read the value to clear all flags and stop the
+        //interrupt from triggering, even if we are just dumping the
+        //value
+        rx_dump_register = UDR;
+        return;
+    }
+    
+    rcv_buff[rx_buff_end_idx] = UDR;
+    
+    //echo
+#if ECHO_ON    
+    if ((rcv_buff[rx_buff_end_idx] == '\r') ||  (rcv_buff[rx_buff_end_idx] == '\n') )
+    {
+        UART_transmitNewLine();
+    }
+    else
+    {
+        UART_TransmitByte(rcv_buff[rx_buff_end_idx]);
+    }
+#endif //ECHO_ON
+    //takes care of circular indexing
+    rx_buff_end_idx = (rx_buff_end_idx+1) % _UART_RX_BUFF_MAX_LEN;
+    rcv_buff_len++;
+}
+
+void UART_ReadRxBuff(char* ret_data, uint8_t* ret_data_len)
+{
+    uint8_t bytes_read;
+    
+    bytes_read = 0;
+    while(rcv_buff_len > 0)
+    {
+        //save value
+        ret_data[bytes_read] = rcv_buff[(rx_buff_start_idx + bytes_read) % _UART_RX_BUFF_MAX_LEN];
+        
+        //mark cell as unused now  //removed for speed, we don't need 0 for empty cells now that we use rcv_buff_len
+        //rcv_buff[(rx_buff_start_idx + bytes_read) % _UART_RX_BUFF_MAX_LEN] = 0;
+        
+        //increment counters
+        rcv_buff_len--;
+        bytes_read++;
+        rx_buff_start_idx = (rx_buff_start_idx + 1) % _UART_RX_BUFF_MAX_LEN;
+    }
+    
+    *ret_data_len = bytes_read;
+    //UART_enableRxInterrupt();
+}
+
+void UART_ReadLineRxBuff(char* ret_data, uint8_t* ret_data_len)
+{
+    uint8_t bytes_read = 0;
+    bool done = false;
+    
+    //dump everything if the buffer is full
+    if (rcv_buff_len == _UART_RX_BUFF_MAX_LEN)
+    {
+        //dump everything if the buffer is full
+    }
+    else
+    {
+        //check for newline character, if its not there... then just return nothing
+        while( (done == false) && (bytes_read < rcv_buff_len))
+        {
+            if (  (rcv_buff[(rx_buff_start_idx + bytes_read) % _UART_RX_BUFF_MAX_LEN] == '\r')
+            || (rcv_buff[(rx_buff_start_idx + bytes_read) % _UART_RX_BUFF_MAX_LEN] == '\n'))
+            {
+                done = true;
+            }
+            bytes_read++;
+        }
+        
+        //if its still not "done" it means theres no line ending char
+        if (done == false)
+        {
+            *ret_data_len = 0;
+            return;
+        }
+    }
+
+    done = false;
+    bytes_read = 0;
+    while( (done == false) && (rcv_buff_len > 0))
+    {
+        //save value
+        ret_data[bytes_read] = rcv_buff[(rx_buff_start_idx) % _UART_RX_BUFF_MAX_LEN];
+        
+        //mark cell as unused now //removed for speed, we don't need 0 for empty cells now that we use rcv_buff_len
+        //rcv_buff[(rx_buff_start_idx) % _UART_RX_BUFF_MAX_LEN] = 0;
+                
+        //check for line ending char
+        if ((ret_data[bytes_read] == '\r') || (ret_data[bytes_read] == '\n'))
+        {
+            done = true;
+            
+            //since its windows we need to look for \r\n
+            //so if there is still more in the buffer
+            if (rcv_buff > 0)
+            {
+                //and its a '\n'
+                if (rcv_buff[(rx_buff_start_idx + 1) % _UART_RX_BUFF_MAX_LEN] == '\n')
+                {
+                    //save value
+                    ret_data[bytes_read] = rcv_buff[(rx_buff_start_idx) % _UART_RX_BUFF_MAX_LEN];
+                    
+                    //mark cell as unused now  //removed for speed, we don't need 0 for empty cells now that we use rcv_buff_len
+                    //rcv_buff[(rx_buff_start_idx + bytes_read) % _UART_RX_BUFF_MAX_LEN] = 0;
+                    
+                    //increment counters
+                    rcv_buff_len--;
+                    bytes_read++;
+                    rx_buff_start_idx = (rx_buff_start_idx + 1) % _UART_RX_BUFF_MAX_LEN;
+                }
+            }
+        }
+        
+        //increment counters
+        rcv_buff_len--;
+        bytes_read++;
+        rx_buff_start_idx = (rx_buff_start_idx + 1) % _UART_RX_BUFF_MAX_LEN;
+    }
+    
+    *ret_data_len = bytes_read;
+    //UART_enableRxInterrupt();
+}
+#else //!CIRCULAR_BUFFER
+ISR(USART_RXC_vect)
+{
+    //uint8_t rx_err_flags;
+    uint8_t rx_dump_register;
+    //must read error flags before reading data
+    //for now, we aren't using this data, but could check for parity or overflow errors
+    //rx_err_flags = UCSRA;
+    
+    //if we still have space in the buffer
+    if (rcv_buff_len < _UART_RX_BUFF_MAX_LEN)
+    {
+        rcv_buff[rcv_buff_len] = UDR;
+        
+        //echo
+        UART_TransmitByte(rcv_buff[rcv_buff_len]);
+        
+        rcv_buff_len++;
+    }
+    else
+    {
+        //we have to read the value to clear all flags and stop the
+        //interrupt from triggering, even if we are just dumping the
+        //value
+        rx_dump_register = UDR;
+    }
+}
+
 /** This function will retrieve data from the uart rcv buffer. This will only have data
  * if interrupts are enabled AND data has been received. It will return the data and
  * length to the calling program
@@ -450,7 +611,6 @@ void UART_ReadRxBuff(char* ret_data, uint8_t* ret_data_len)
     *ret_data_len = rcv_buff_len;
     for (ii = 0; ii < rcv_buff_len; ii++)
     {
-        //aia.test is this gonna be one off because the while condition??? shouldn't
         //copy data from buffer to return value
         ret_data[ii] = rcv_buff[ii];
         
@@ -461,36 +621,7 @@ void UART_ReadRxBuff(char* ret_data, uint8_t* ret_data_len)
      
     //UART_enableRxInterrupt();
 }
-
-/** Vector supported by ATmega16, ATmega32, ATmega323, ATmega8
- * This ISR will automatically read values from the UART Rx register and store them into a 
- * a buffer to be read at a later time.
- * @NOTE If the buffer is already full, all additional bytes will be lost.
- * At this point there is no fault handling in this code, but it could be added in the future
-*/
-ISR(USART_RXC_vect)
-{
-    //uint8_t rx_err_flags;
-    uint8_t rx_dump_register;
-    //must read error flags before reading data
-    //for now, we aren't using this data, but could check for parity or overflow errors
-    //rx_err_flags = UCSRA;
-    
-    //if we still have space in the buffer
-    if (rcv_buff_len < _UART_RX_BUFF_MAX_LEN)
-    {        
-        rcv_buff[rcv_buff_len] = UDR;
-        rcv_buff_len++;
-    }
-    else
-    {
-        //we have to read the value to clear all flags and stop the 
-        //interrupt from triggering, even if we are just dumping the 
-        //value
-        rx_dump_register = UDR;
-    }
-}
-
+#endif
 void convertUint8ToChar(uint8_t in_val, char* output_3_chars)
 {
     uint8_t ones;
