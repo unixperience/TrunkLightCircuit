@@ -7,6 +7,7 @@
 
 #include "avr_adc.h"
 #include <avr/io.h>
+#include "avr_uart.h"
 
 void adc_reset(void)
 {
@@ -114,6 +115,7 @@ bool adc_start_conversion(bool block_till_complete)
     //if the adc is not enabled return false
     if (!BIT_GET(ADCSRA, ADEN))
     {
+        UART_transmitString("ERROR: ADC Disabled\r\n\0");
         return false;
     }        
     
@@ -148,8 +150,9 @@ uint16_t adc_read10_value(void)
     uint16_t ret_val = 0x0000;
     
     //must start with low register first
-    ret_val |= (ADCL >> 6);
-    ret_val |= (ADCH << 2);
+    //ret_val |= ADCL; //(ADCL >> 6);
+    //ret_val |= (ADCH << 8);
+    ret_val = ADC;
     ret_val &= MASK_10_BIT;
     
     return ret_val;

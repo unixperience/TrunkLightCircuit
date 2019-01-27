@@ -1,7 +1,7 @@
 #include "global.h"
 #include "avr_timers.h"
 
-#define ONE_PERCENT_OF_8_BIT (256.0 / 100.0)
+#define ONE_PERCENT_OF_8_BIT (255.0 / 100.0)
 
 
 void timers_default(void)
@@ -271,38 +271,54 @@ void enablePWMOutput(ePWM_OUTPUT output_pin)
 {
     if (output_pin == epwm_1a)
     {
+        //for the output driver to work, you must set the pin as output in Data Direction Register DDR
+        BIT_SET(DDRB, PINB1);
+        
         //turn on PWM pin OC1A 8bit mode, note config spans 2 registers A/B
-        BIT_CLEAR(TCCR1A, WGM13);
-        BIT_CLEAR(TCCR1A, WGM12);
+        BIT_CLEAR(TCCR1B, WGM13);
         BIT_SET(TCCR1B  , WGM12);
         BIT_CLEAR(TCCR1A, WGM11);
         BIT_SET(TCCR1A  , WGM10);
         
-        //set as non-inverting (toggle on compare match)
-        BIT_SET(TCCR1A  , COM1A1);
-        BIT_CLEAR(TCCR1A, COM1A0);
+        //set as inverting (clear on compare match)
+        BIT_SET(TCCR1A  , COM1A1);  //enable pwm output pin
+        //BIT_SET(TCCR1A  , COM1A0);  //inverting
+        
+        //this would be non-inverting
+        BIT_CLEAR(TCCR1A, COM1A0);    
     }
     else if (output_pin == epwm_1b)
     {
+        //for the output driver to work, you must set the pin as output in Data Direction Register DDR
+        BIT_SET(DDRB, PINB2);
+        
         //turn on PWM pin OC1A 8bit mode, note config spans 2 registers A/B
-        BIT_CLEAR(TCCR1A, WGM13);
-        BIT_CLEAR(TCCR1A, WGM12);
+        BIT_CLEAR(TCCR1B, WGM13);
         BIT_SET(TCCR1B  , WGM12);
         BIT_CLEAR(TCCR1A, WGM11);
         BIT_SET(TCCR1A  , WGM10);
         
-        //set as non-inverting (toggle on compare match)
-        BIT_SET(TCCR1A  , COM1B1);
+        //set as inverting (clear on compare match)
+        BIT_SET(TCCR1A  , COM1B1);  //enable pwm output pin
+        //BIT_SET(TCCR1A  , COM1B0);  //inverting
+        
+        //this would be non-inverting mode
         BIT_CLEAR(TCCR1A, COM1B0);
     }
     else if (output_pin == epwm_2)
     {
+        //for the output driver to work, you must set the pin as output in Data Direction Register DDR
+        BIT_SET(DDRB, PINB3);
+        
         //turn on PWM pin OC2
         BIT_SET(TCCR2  , WGM21);
         BIT_SET(TCCR2  , WGM20);
         
         //set as non-inverting (toggle on compare match)
-        BIT_SET(TCCR2  , COM21);
+        BIT_SET(TCCR2  , COM21); //enable pwm output pin
+        //BIT_SET(TCCR2  , COM20); //inverting
+        
+        //this would be non-inverting
         BIT_CLEAR(TCCR2, COM20);
     }
 }
@@ -339,10 +355,12 @@ void enableTimerOverflowInterrupt(eTIMER val)
     }
     else if (val == etimer_1)
     {
+        //There are 3 more types of interrupts compare match a/b, input capture
         BIT_SET(TIMSK, TOIE1);
     }
     else if (val == etimer_2)
     {
+        //there is also a compare match interrupt
         BIT_SET(TIMSK, TOIE2);
     }
 }

@@ -305,11 +305,6 @@ void init_timers(void)
     init_timer0();
     init_timer1();
     init_timer2();
-    
-    //the status LED will be controlled by the turn signal overflow interrupt
-    //this is because no matter if we are in separate function mode or not, 
-    //this time is always running
-    enableTimerOverflowInterrupt(etimer_1);
 }
 
 void init_timer0(void)
@@ -325,6 +320,12 @@ void init_timer0(void)
     //sets prescaler to 256 F_CPU = 16MHz
     // 16MHz / (8_bit_max * prescaler) = 16MHz / (256 * 256) = 244.14Hz
     SetTimerPrescale(etimer_0, tmr_prscl_clk_over_256);
+    
+        
+    //the status LED will be controlled by the turn signal overflow interrupt
+    //this is because no matter if we are in separate function mode or not,
+    //this time is always running
+    enableTimerOverflowInterrupt(etimer_1);
 }
 
 /* Timer 1 has two channels A and B, these channels will be used for the two directional
@@ -355,13 +356,13 @@ void init_timer2(void)
     //reset registers to a known state
     timer2_default();
     
-    //enable pwm
-    enablePWMOutput(arr_pwm_output[ARR_IDX_BRAKE]);
-    
     //sets prescaler to 64 F_CPU = 16MHz
     //no real reason for this value, as long as its PWM we are fine
     // 16MHz / (8_bit_max * prescaler) = 16MHz / (256 * 64) = 976.5625Hz
     SetTimerPrescale(etimer_2, tmr_prscl_clk_over_64);
+    
+    //enable pwm
+    enablePWMOutput(arr_pwm_output[ARR_IDX_BRAKE]);
 }
 
 void init_timer2AsOneSecondTimer(void)
@@ -454,9 +455,6 @@ void init_IO(void)
        
     //most of the pins are used as special functions.  So their DDR (data Direction Register)
     //definitions will be over-ridden anyway. These pins include:
-    //  PB1 - PWM output OC1A, left  turn signal
-    //  PB2 - PWM output OC1B, right turn signal
-    //  PB3 - PWM output OC2,  brake light
     //  PB6 - OSC XTAL osc1
     //  PB7 - OSC XTAL osc2
     //  PC0 - ADC input flash freq
@@ -470,14 +468,107 @@ void init_IO(void)
     //  PD3 - External interrupt 1, brake input
     //
     //so now we set the remaining pins
+    //  PB1 - PWM output OC1A, left  turn signal    (must be 'output' to activate driver)
+    //  PB2 - PWM output OC1B, right turn signal    (must be 'output' to activate driver)
+    //  PB3 - PWM output OC2,  brake light          (must be 'output' to activate driver)
     //  PD2 - Left input
     //  PD4 - Right input
     //  PD5 - Output status LED
     //sets output pins
+    DDRB |= (1 << PINB1)
+         |  (1 << PINB2)
+         |  (1 << PINB3);
     DDRD |= (1 << LED_OUTPUT_PIN);
        
     //clears output pins
     BIT_CLEAR(LED_OUTPUT_PORT, LED_OUTPUT_PIN);
+}
+
+
+int main_pwm_test(void)
+{
+    init_uart_debug();
+    init_timers();
+    
+    while(1)
+    {
+        UART_transmitString("L:100 r:  0\r\n\0");
+        setPWMDutyCycle(arr_pwm_output[ARR_IDX_RIGHT], 0);
+        setPWMDutyCycle(arr_pwm_output[ARR_IDX_LEFT], 100);        
+        _delay_ms(2500);
+        
+        UART_transmitString("L: 75 r: 25\r\n\0");
+        setPWMDutyCycle(arr_pwm_output[ARR_IDX_RIGHT], 25);
+        setPWMDutyCycle(arr_pwm_output[ARR_IDX_LEFT], 75);
+        _delay_ms(2500);
+        
+        UART_transmitString("L: 50 r: 50\r\n\0");
+        setPWMDutyCycle(arr_pwm_output[ARR_IDX_RIGHT], 50);
+        setPWMDutyCycle(arr_pwm_output[ARR_IDX_LEFT], 50);
+        _delay_ms(2500);
+        
+        UART_transmitString("L: 25 r: 75\r\n\0");
+        setPWMDutyCycle(arr_pwm_output[ARR_IDX_RIGHT], 75);
+        setPWMDutyCycle(arr_pwm_output[ARR_IDX_LEFT], 25);
+        _delay_ms(2500);
+        
+        UART_transmitString("L:  0 r:100\r\n\0");
+        setPWMDutyCycle(arr_pwm_output[ARR_IDX_RIGHT], 100);
+        setPWMDutyCycle(arr_pwm_output[ARR_IDX_LEFT], 0);
+        _delay_ms(2500);
+    }
+}
+
+int main(void)
+{
+    uint16_t value1;
+    uint16_t value2;
+    
+    
+    init_uart_debug();
+    init_adc(false);    
+    UART_transmitString("Displaying adc value\r\n\0");
+    init_timers();
+    setPWMDutyCycle(arr_pwm_output[ARR_IDX_RIGHT], 100);
+    setPWMDutyCycle(arr_pwm_output[ARR_IDX_LEFT], 100);
+    
+    while(1)
+    {
+        adc_select_ref(FLASH_REF);
+        
+        adc_select_input_channel(arr_adc_input[ARR_IDX_FL_NUM]);
+        adc_start_conversion(true);
+        value1 = adc_read10_value();        
+        
+        adc_select_input_channel(arr_adc_input[ARR_IDX_FL_FREQ]);
+        adc_start_conversion(true);
+        value2 = adc_read10_value();
+        
+        //print
+        UART_transmitString("Num:\0");
+        UART_transmitUint16(value1);
+        UART_transmitString(" Freq:\0");
+        UART_transmitUint16(value2);
+        
+        adc_select_ref(FDBK_REF);
+        adc_select_input_channel(arr_adc_input[ARR_IDX_LEFT]);
+        adc_start_conversion(true);
+        value1 = adc_read10_value();
+        
+        adc_select_input_channel(arr_adc_input[ARR_IDX_RIGHT]);
+        adc_start_conversion(true);
+        value2 = adc_read10_value();
+        
+        //print
+        UART_transmitString(" Left:\0");
+        UART_transmitUint16(value1);
+        UART_transmitString(" Right:\0");
+        UART_transmitUint16(value2);
+        UART_transmitNewLine();
+        _delay_ms(250);
+    }
+    
+    return 0;
 }
 
 /** @brief Writes the current position of the cursor
@@ -490,10 +581,11 @@ void init_IO(void)
  *         column will be written.
  *  @return Void.
  */
-int main(void)
+int main_old(void)
 {
     //in the future you may use these
     char ret_data[_UART_RX_BUFF_MAX_LEN] = {0};
+    uint8_t num;
     uint8_t ret_len;
     uint16_t brake_light_test_reading;
     bool separate_function_lights;
@@ -546,7 +638,7 @@ int main(void)
     //adc start conversion and wait for result, normally the first one is inaccurate
     //so we wont even check it
     adc_start_conversion(true);
-    _delay_ms(800);
+    _delay_ms(8000);
     
     adc_start_conversion(true);
     brake_light_test_reading = adc_read10_value();
@@ -620,7 +712,7 @@ int main(void)
 
     while (1)
     {
-        UART_ReadRxBuff(ret_data, &ret_len);
+        UART_ReadLineRxBuff(ret_data, &ret_len);
         
         if (ret_len > 0)
         {
@@ -640,7 +732,7 @@ int main(void)
                         UART_transmitString("Leaving debug mode, reset device for normal operation\r\n\0");
                         debug_mode_enabled = false;
                     }
-                    else if (ret_data[0] == 'a')
+                    else if (ret_data[0] == 'a' && ret_data[1] == 'd' && ret_data[2] == 'c')
                     {
                         curr_debug_mode = DebugADC;
                         UART_transmitString("Starting ADC debug mode");
@@ -648,7 +740,8 @@ int main(void)
                         adc_disable_interrupt_on_conversion();
                         ge_ADC_STATE = STATE_ADC_TEST;
                         adc_select_ref(AVcc);
-                        //adc_enable_interrupt_on_conversion();                    
+                        adc_select_input_channel(ADC4);
+                        adc_enable_interrupt_on_conversion();                    
                     
                         adc_start_conversion(false);
                     }
@@ -656,6 +749,13 @@ int main(void)
                     {
                         curr_debug_mode = DebugUART;
                         UART_transmitString("Starting uart debug mode");
+                    }
+                    else if ((ret_data[0] == 'p') && (ret_data[1] == 'w') && (ret_data[2] == 'm'))
+                    {
+                        curr_debug_mode = DebugPWM;
+                        UART_transmitString("Starting PWM debug mode");
+                        //ensures PWM is running
+                        init_timers();
                     }
                 }//if (curr_debug_mode == DebugDisabled)
                 else if (curr_debug_mode == DebugADC)
@@ -722,7 +822,8 @@ int main(void)
                     {
                         UART_transmitString("Displaying Channel 3\r\n\0");
                         adc_select_input_channel(ADC3);
-                        adc_start_conversion(true);
+                        adc_start_conversion(false);
+                        _delay_ms(100);
                         brake_light_test_reading = adc_read10_value();
                         UART_transmitUint16(brake_light_test_reading);
                         UART_transmitNewLine();
@@ -731,12 +832,74 @@ int main(void)
                     {
                         UART_transmitString("Displaying Channel 4\r\n\0");
                         adc_select_input_channel(ADC4);
-                        adc_start_conversion(true);
+                        adc_start_conversion(false);
+                        _delay_ms(100);
                         brake_light_test_reading = adc_read10_value();
                         UART_transmitUint16(brake_light_test_reading);
                         UART_transmitNewLine();
                     }
                 }//else if (curr_debug_mode == DebugADC)
+                /*
+                else if (curr_debug_mode == DebugPWM)
+                {
+                    if (ret_data[0] == 'Q')
+                    {
+                        UART_transmitString("Leaving PWM debug mode\r\n\0");
+                        curr_debug_mode = DebugDisabled;
+                        init_timers();
+                    }
+                    else if (ret_data[0] == 's')
+                    {
+                        num = ret_data[4] - 48;
+                        num *= 10;
+                        
+                        UART_transmitString("PWM:");
+                        UART_transmitUint8(num);
+                        UART_transmitNewLine();
+                        if ((ret_data[1] == '1') || (ret_data[2] == 'a'))
+                        {
+                            setPWMDutyCycle(epwm_1a,num);
+                        } 
+                        else if ((ret_data[1] == '1') || (ret_data[2] == 'b'))
+                        {
+                            setPWMDutyCycle(epwm_1b,num);
+                        }
+                        else if (ret_data[1] == '2')
+                        {
+                            setPWMDutyCycle(epwm_2,num);
+                        }
+                    }//else if (ret_data[0] == 's')
+                    else if (ret_data[0] == 'd')
+                    {
+                        if ((ret_data[1] == '1') || (ret_data[2] == 'a'))
+                        {
+                            disablePWMOutput(epwm_1a);
+                        }
+                        else if ((ret_data[1] == '1') || (ret_data[2] == 'b'))
+                        {
+                            disablePWMOutput(epwm_1b);
+                        }
+                        else if (ret_data[1] == '2')
+                        {
+                            disablePWMOutput(epwm_2);
+                        }
+                    }//else if (ret_data[0] == 'd')
+                    else if (ret_data[0] == 'e')
+                    {
+                        if ((ret_data[1] == '1') || (ret_data[2] == 'a'))
+                        {
+                            enablePWMOutput(epwm_1a);
+                        }
+                        else if ((ret_data[1] == '1') || (ret_data[2] == 'b'))
+                        {
+                            enablePWMOutput(epwm_1b);
+                        }
+                        else if (ret_data[1] == '2')
+                        {
+                            enablePWMOutput(epwm_2);
+                        }
+                    }//else if (ret_data[0] == 'e') 
+                }// else if (curr_debug_mode == DebugPWM) */
             }//if (debug_mode_enabled)
             
 //             
