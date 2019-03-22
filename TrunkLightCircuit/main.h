@@ -101,7 +101,6 @@ void init_timer2AsOneSecondTimer(void);
 #define LED_B_OUTPUT_PIN    PIND5
 #define LED_G_OUTPUT_PIN    PIND6
 #define LED_R_OUTPUT_PIN    PIND7
-#define LED_OUTPUT_PIN      LED_R_OUTPUT_PIN    //aia.test you need to do more with status LED
 #define LED_ACTIVE_LOW      true
 
 void init_RGB_status_LED(void);
