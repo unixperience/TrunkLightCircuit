@@ -74,7 +74,8 @@ ISR(ADC_vect)
             adc_select_input_channel(arr_adc_input[(gb_NUM_ADC_CONVERSIONS+1) % 3]);
         }
             
-        //processes value
+        //processes value, if the I (current reading) is too high turn off the output
+        // and set a flag
         if (arr_adc_conv_val[gb_NUM_ADC_CONVERSIONS % 3] > gbCURRENT_LIMIT)
         {
             disablePWMOutput(arr_pwm_output[gb_NUM_ADC_CONVERSIONS % 3]);
@@ -236,7 +237,7 @@ ISR(TIMER0_OVF_vect)
 }
 
 /** this interrupt is used to flash the status led. As long as over current
- * wasn't detecteed. Over current will just light thee LED solid red
+ * wasn't detected. Over current will just light the LED solid red
  */
 ISR(TIMER1_OVF_vect)
 {
@@ -249,13 +250,14 @@ ISR(TIMER1_OVF_vect)
         else
         {
             //toggle led
-            LED_OUTPUT_PORT ^= (1 << LED_OUTPUT_PIN);
+            statusLed_toggle(); 
             gu8_NUM_TIMER1_OVF = 0;
         }
     }
     else
     {
-        BIT_SET(LED_OUTPUT_PORT, LED_OUTPUT_PIN);
+        statusLed_set_color(LED_RED);
+        statusLed_On();
     }        
 }    
 
@@ -383,6 +385,8 @@ void init_timer2AsOneSecondTimer(void)
 void init_RGB_status_LED(void)
 {
     statusLed_init(PORTD, LED_R_OUTPUT_PIN, LED_G_OUTPUT_PIN, LED_B_OUTPUT_PIN, LED_ACTIVE_LOW);
+    
+    statusLed_set_color(LED_GREEN);
 }
 #pragma endregion RGB_status_led
 /************************************************************************/
@@ -486,10 +490,14 @@ void init_IO(void)
     DDRB |= (1 << PINB1)
          |  (1 << PINB2)
          |  (1 << PINB3);
-    DDRD |= (1 << LED_OUTPUT_PIN);
-       
-    //clears output pins
-    BIT_CLEAR(LED_OUTPUT_PORT, LED_OUTPUT_PIN);
+    DDRD |= (1 << LED_R_OUTPUT_PIN)
+         |  (1 << LED_G_OUTPUT_PIN)
+         |  (1 << LED_B_OUTPUT_PIN);
+         
+    //LED is active low 
+    BIT_CLEAR(LED_OUTPUT_PORT, LED_R_OUTPUT_PIN);
+    BIT_CLEAR(LED_OUTPUT_PORT, LED_G_OUTPUT_PIN);
+    BIT_CLEAR(LED_OUTPUT_PORT, LED_B_OUTPUT_PIN);
 }
 /*
 
@@ -647,6 +655,8 @@ int main(void)
    
     now that we've determined system type we can go to work with regular program
     */
+    statusLed_set_color(LED_YELLOW);
+    statusLed_On();
     setPWMDutyCycle(arr_pwm_output[ARR_IDX_BRAKE], DUTY_CYCLE_FULL_BRIGHTNESS);
     adc_select_ref(FDBK_REF);
     adc_select_input_channel(arr_adc_input[ARR_IDX_FL_FREQ]);
@@ -672,6 +682,7 @@ int main(void)
     if (brake_light_test_reading >= FEEDBACK_100_mAMP)
     {
         separate_function_lights = true;
+        statusLed_set_color(LED_GREEN);
         #ifdef DEBUG
         UART_transmitString("Detected Separate fn\r\n\0");
         #endif // DEBUG
@@ -679,6 +690,7 @@ int main(void)
     else
     {
         separate_function_lights = false;
+        statusLed_set_color(LED_AQUA);
         #ifdef DEBUG
         UART_transmitString("Detected Integrated fn\r\n\0");
         #endif // DEBUG
