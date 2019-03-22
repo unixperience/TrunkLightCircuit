@@ -60,6 +60,19 @@ ISR(ADC_vect)
     {
         //reads old value
         arr_adc_conv_val[gb_NUM_ADC_CONVERSIONS % 3] = adc_read10_value();
+        
+        //with our ADC clock speed 125k/250k this should be ever 3-5 seconds
+        //moving the channel switch before other processing will ensure the input change is stable
+        if (gb_NUM_ADC_CONVERSIONS > FDBK_CYCLES)
+        {
+            //move to next state
+            adc_select_input_channel(arr_adc_input[ARR_IDX_FL_FREQ]);
+            ge_ADC_STATE = STATE_ADC_READ_FREQ_FLASHES;
+        }
+        else
+        {
+            adc_select_input_channel(arr_adc_input[(gb_NUM_ADC_CONVERSIONS+1) % 3]);
+        }
             
         //processes value
         if (arr_adc_conv_val[gb_NUM_ADC_CONVERSIONS % 3] > gbCURRENT_LIMIT)
@@ -74,7 +87,7 @@ ISR(ADC_vect)
             #endif // DEBUG
         }
             
-        #ifdef DEBUG
+        #ifdef DEBUG_PRINT
         UART_transmitString("ADC\0");
         UART_transmitUint8(gb_NUM_ADC_CONVERSIONS % 3);
         UART_transmitString(":\0");
@@ -83,29 +96,18 @@ ISR(ADC_vect)
         #endif // DEBUG
 
         //moves to new input
-        gb_NUM_ADC_CONVERSIONS++;
-        
-        //with our ADC clock speed 125k/250k this should be ever 3-5 seconds
-        if (gb_NUM_ADC_CONVERSIONS > FDBK_CYCLES)
-        {
-            //move to next state
-            adc_select_input_channel(arr_adc_input[ARR_IDX_FL_FREQ]);
-            adc_select_ref(FLASH_REF);
-            ge_ADC_STATE = STATE_ADC_SWITCH_TO_5V_REF;
-        }
-        else
-        {
-            adc_select_input_channel(arr_adc_input[gb_NUM_ADC_CONVERSIONS % 3]);
-        }
+        gb_NUM_ADC_CONVERSIONS++;               
             
         //start next conversion, but don't wait for completion
         adc_start_conversion(false);
     }
     else if (ge_ADC_STATE == STATE_ADC_SWITCH_TO_5V_REF)
     {
-        //dont read the value, its bad after switch sources
-        
-        ge_ADC_STATE = STATE_ADC_READ_FREQ_FLASHES;
+        //dont read the value, its bad after switch reference sources
+        adc_read10_value();
+                
+        ge_ADC_STATE = STATE_ADC_READ_FREQ_FLASHES;        
+      
         //start next conversion, but don't wait for completion
         adc_start_conversion(false);
     }
@@ -135,45 +137,36 @@ ISR(ADC_vect)
         // Since we want to effectively double our frequency rather than doing 244Hz/val_1_to_10
         // we will do (244/2) / val_1_to_10 which is the same as our table
         //           ovf_freq/  ((    val is 0-9    ) now its 1-10)
-        gu8_FLASH_FREQ_PRESCALER = adc_read10_value(); //aia.teset 122.0 / ((adc_read10_value() / 102.4) + 1);
-        
-        #ifdef DEBUG
-        UART_transmitString("fl freq:\0");
-        UART_transmitUint8(gu8_FLASH_FREQ_PRESCALER);
-        UART_transmitNewLine();
-        #endif // DEBUG
+        gu8_FLASH_FREQ_PRESCALER = 122.0 / ((adc_read10_value() / 102.4) + 1);
         
         //move to next state
         adc_select_input_channel(arr_adc_input[ARR_IDX_FL_NUM]);
         ge_ADC_STATE = STATE_ADC_READ_NUM_FLASHES;
+        
+        #ifdef DEBUG
+        UART_transmitString(" freq:\0");
+        UART_transmitUint16(gu8_FLASH_FREQ_PRESCALER);
+        #endif // DEBUG
+                
         adc_start_conversion(false);
     }
     else if (ge_ADC_STATE == STATE_ADC_READ_NUM_FLASHES)
     {
         //flashes range from 2-20 (even numbers only); adc range 0-1024 so we convert
         //          the range from 1-10, then double it
-        gu8_MAX_NUM_FLASHES = adc_read10_value(); // aia.test ((adc_read10_value() / 102.4) + 1) * 2;
+        gu8_MAX_NUM_FLASHES =  ((adc_read10_value()/ 103) + 1) * 2;
+        adc_select_input_channel(arr_adc_input[gb_NUM_ADC_CONVERSIONS % 3]);
         
         #ifdef DEBUG
-        UART_transmitString("fl num:\0");
-        UART_transmitUint8(gu8_MAX_NUM_FLASHES);
+        UART_transmitString(" num:\0");
+        UART_transmitUint16(gu8_MAX_NUM_FLASHES);
         UART_transmitNewLine();
         #endif // DEBUG
         
         //move to next state
-        ge_ADC_STATE = STATE_ADC_SWITCH_TO_2p56V_REF;
-        
-        gb_NUM_ADC_CONVERSIONS = 0;
-        adc_select_ref(FDBK_REF);
-        adc_select_input_channel(arr_adc_input[gb_NUM_ADC_CONVERSIONS % 3]);
-        adc_start_conversion(false);
-    }
-    else if (ge_ADC_STATE == STATE_ADC_SWITCH_TO_2p56V_REF)
-    {
-        //dont read the value, its bad after switch sources
-        
-        //move to next state
         ge_ADC_STATE = STATE_ADC_READ_FEEDBACK;
+        
+        gb_NUM_ADC_CONVERSIONS = 0;       
         adc_start_conversion(false);
     }
     else if (ge_ADC_STATE == STATE_ADC_TEST)
@@ -204,7 +197,7 @@ ISR(TIMER0_OVF_vect)
         if (gu8_NUM_TIMER0_OVF >= gu8_FLASH_FREQ_PRESCALER)
         {   
             //if we have not done all our flashes
-            if (gu8_MAX_NUM_FLASHES < gu8_NUM_OCCURED_FLASHES)
+            if (gu8_NUM_OCCURED_FLASHES < gu8_MAX_NUM_FLASHES)
             {
                 gu8_NUM_OCCURED_FLASHES++;
             
@@ -236,6 +229,10 @@ ISR(TIMER0_OVF_vect)
             gu8_NUM_TIMER0_OVF++;
         }
     }    
+    else
+    {        
+        setPWMDutyCycle(arr_pwm_output[ARR_IDX_BRAKE], DUTY_CYCLE_LOW_BRIGHTNESS);
+    }
 }
 
 /** this interrupt is used to flash the status led. As long as over current
@@ -380,6 +377,15 @@ void init_timer2AsOneSecondTimer(void)
 #pragma endregion timers
 
 /************************************************************************/
+/*                           RGB STATUS LED                             */
+/************************************************************************/
+#pragma region RGB_status_led
+void init_RGB_status_LED(void)
+{
+    statusLed_init(PORTD, LED_R_OUTPUT_PIN, LED_G_OUTPUT_PIN, LED_B_OUTPUT_PIN, LED_ACTIVE_LOW);
+}
+#pragma endregion RGB_status_led
+/************************************************************************/
 /*                               MAIN                                   */
 /************************************************************************/
 ISR(INT1_vect)
@@ -387,7 +393,7 @@ ISR(INT1_vect)
     // this is the only place these values are set, other places only read them
     // so even though there is a risk of reading a stale value, it is a non critical
     // error and will quickly be rectified
-    if (BIT_SET(LIGHT_INPUT_PORT,BRAKE_IN))
+    if (BIT_GET(LIGHT_INPUT_PORT,BRAKE_IN))
     {
         gb_BRAKE_ON = true;
         
@@ -418,8 +424,10 @@ void init_external_interupts(void)
 {
     //any logical change on int1 generates an interrupt request
     //set Interrupt Sense Control Bit
+    BIT_CLEAR(MCUCR,ISC10);
     BIT_SET(MCUCR,ISC10);
     
+    //turns on ext interrupt 1
     BIT_SET(GICR,INT1);
 }
 
@@ -436,8 +444,8 @@ void init_globals(void)
     gb_RIGHT_TURN_SIGNAL_ON = false;
     gb_OVERCURRENT_TRIPPED = false;
 
-    gu8_MAX_NUM_FLASHES =  4;
-    gu8_FLASH_FREQ_PRESCALER = 4;
+    gu8_MAX_NUM_FLASHES =  8;
+    gu8_FLASH_FREQ_PRESCALER = 122;
     
     gu8_NUM_TIMER0_OVF = 0;
     gu8_NUM_TIMER1_OVF = 0;
@@ -483,7 +491,7 @@ void init_IO(void)
     //clears output pins
     BIT_CLEAR(LED_OUTPUT_PORT, LED_OUTPUT_PIN);
 }
-
+/*
 
 int main_pwm_test(void)
 {
@@ -519,10 +527,11 @@ int main_pwm_test(void)
     }
 }
 
-int main(void)
+int main_adc(void)
 {
     uint16_t value1;
     uint16_t value2;
+    uint16_t value3;
     
     
     init_uart_debug();
@@ -559,18 +568,24 @@ int main(void)
         adc_start_conversion(true);
         value2 = adc_read10_value();
         
+         adc_select_input_channel(arr_adc_input[ARR_IDX_BRAKE]);
+         adc_start_conversion(true);
+         value2 = adc_read10_value();
+        
         //print
         UART_transmitString(" Left:\0");
         UART_transmitUint16(value1);
         UART_transmitString(" Right:\0");
         UART_transmitUint16(value2);
+        UART_transmitString(" Brake:\0");
+        UART_transmitUint16(value3);
         UART_transmitNewLine();
         _delay_ms(250);
     }
     
     return 0;
 }
-
+*/
 /** @brief Writes the current position of the cursor
  *         into the arguments row and col.
  *	Just a regular detailed description goes here
@@ -581,7 +596,7 @@ int main(void)
  *         column will be written.
  *  @return Void.
  */
-int main_old(void)
+int main(void)
 {
     //in the future you may use these
     char ret_data[_UART_RX_BUFF_MAX_LEN] = {0};
@@ -609,6 +624,7 @@ int main_old(void)
     //no interrupts
     init_adc(false);
     init_timers();
+    init_RGB_status_LED();
         
     //enable global interrupts
     sei();
@@ -619,15 +635,15 @@ int main_old(void)
     if yes
     separate_function_lights = true
         we have 3 light system
-        we have a brake light circuti separate from the turn signals
-        this will use flashing for brakes 100% gauranteed
+        we have a brake light circuit separate from the turn signals
+        this will use flashing for brakes 100% guaranteed
     else
         we have two light system
         separate_function_lights = false
         a) disable brake output
         in a two light system we have only left and right lights. so they must
         do both turn signal and brake.... i think for clarity this also disables
-        all flashing functionality???? 
+        all flashing functionality???? I havent decided yet
    
     now that we've determined system type we can go to work with regular program
     */
@@ -638,7 +654,7 @@ int main_old(void)
     //adc start conversion and wait for result, normally the first one is inaccurate
     //so we wont even check it
     adc_start_conversion(true);
-    _delay_ms(8000);
+    _delay_ms(3000);
     
     adc_start_conversion(true);
     brake_light_test_reading = adc_read10_value();
@@ -667,6 +683,9 @@ int main_old(void)
         UART_transmitString("Detected Integrated fn\r\n\0");
         #endif // DEBUG
     }
+    
+    //aia.test need to verify second mode
+    separate_function_lights = true;
     
     if (separate_function_lights)
     {
@@ -708,10 +727,12 @@ int main_old(void)
     }        
     
     //start adc state machine
-    //adc_start_conversion(false);
+    adc_start_conversion(false);
 
     while (1)
     {
+        /*
+#ifdef DEBUG      
         UART_ReadLineRxBuff(ret_data, &ret_len);
         
         if (ret_len > 0)
@@ -839,7 +860,6 @@ int main_old(void)
                         UART_transmitNewLine();
                     }
                 }//else if (curr_debug_mode == DebugADC)
-                /*
                 else if (curr_debug_mode == DebugPWM)
                 {
                     if (ret_data[0] == 'Q')
@@ -899,7 +919,7 @@ int main_old(void)
                             enablePWMOutput(epwm_2);
                         }
                     }//else if (ret_data[0] == 'e') 
-                }// else if (curr_debug_mode == DebugPWM) */
+                }// else if (curr_debug_mode == DebugPWM) 
             }//if (debug_mode_enabled)
             
 //             
@@ -923,7 +943,9 @@ int main_old(void)
             UART_transmitNewLine();
             
         }//end ret_len > 0
-        
+#endif // DEBUG
+*/
+                
         if (separate_function_lights)
         {
             // here we have a separate brake and turn signals. The turn signals only

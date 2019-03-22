@@ -40,7 +40,8 @@ C_SRCS +=  \
 ../avr_adc.c \
 ../avr_timers.c \
 ../avr_uart.c \
-../main.c
+../main.c \
+../StatusLED.c
 
 
 PREPROCESSING_SRCS += 
@@ -53,25 +54,29 @@ OBJS +=  \
 avr_adc.o \
 avr_timers.o \
 avr_uart.o \
-main.o
+main.o \
+StatusLED.o
 
 OBJS_AS_ARGS +=  \
 avr_adc.o \
 avr_timers.o \
 avr_uart.o \
-main.o
+main.o \
+StatusLED.o
 
 C_DEPS +=  \
 avr_adc.d \
 avr_timers.d \
 avr_uart.d \
-main.d
+main.d \
+StatusLED.d
 
 C_DEPS_AS_ARGS +=  \
 avr_adc.d \
 avr_timers.d \
 avr_uart.d \
-main.d
+main.d \
+StatusLED.d
 
 OUTPUT_FILE_PATH +=TrunkLightCircuit.elf
 
@@ -109,6 +114,13 @@ LINKER_SCRIPT_DEP+=
 	
 
 ./main.o: .././main.c
+	@echo Building file: $<
+	@echo Invoking: AVR/GNU C Compiler : 5.4.0
+	$(QUOTE)C:\Program Files (x86)\Atmel\Studio\7.0\toolchain\avr8\avr8-gnu-toolchain\bin\avr-gcc.exe$(QUOTE)  -x c -funsigned-char -funsigned-bitfields -DDEBUG  -I"C:\Program Files (x86)\Atmel\Studio\7.0\Packs\Atmel\ATmega_DFP\1.3.300\include"  -O1 -ffunction-sections -fdata-sections -fpack-struct -fshort-enums -g2 -Wall -mmcu=atmega8a -B "C:\Program Files (x86)\Atmel\Studio\7.0\Packs\Atmel\ATmega_DFP\1.3.300\gcc\dev\atmega8a" -c -std=gnu99 -MD -MP -MF "$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -MT"$(@:%.o=%.o)"   -o "$@" "$<" 
+	@echo Finished building: $<
+	
+
+./StatusLED.o: .././StatusLED.c
 	@echo Building file: $<
 	@echo Invoking: AVR/GNU C Compiler : 5.4.0
 	$(QUOTE)C:\Program Files (x86)\Atmel\Studio\7.0\toolchain\avr8\avr8-gnu-toolchain\bin\avr-gcc.exe$(QUOTE)  -x c -funsigned-char -funsigned-bitfields -DDEBUG  -I"C:\Program Files (x86)\Atmel\Studio\7.0\Packs\Atmel\ATmega_DFP\1.3.300\include"  -O1 -ffunction-sections -fdata-sections -fpack-struct -fshort-enums -g2 -Wall -mmcu=atmega8a -B "C:\Program Files (x86)\Atmel\Studio\7.0\Packs\Atmel\ATmega_DFP\1.3.300\gcc\dev\atmega8a" -c -std=gnu99 -MD -MP -MF "$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -MT"$(@:%.o=%.o)"   -o "$@" "$<" 

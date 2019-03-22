@@ -14,6 +14,7 @@
 #include "avr_uart.h"
 #include "avr_adc.h"
 #include "avr_timers.h"
+#include "StatusLED.h"
 
 /************************************************************************/
 /*                                UART                                  */
@@ -31,31 +32,29 @@ void init_uart_debug(void);
 //FEEDBACK_LEFT, FEEDBACK_BRAKE, FEEDBACK_RIGHT, FREQ_FLASH, NUM_FLASH
 #define ARR_IDX_FL_FREQ 3
 #define ARR_IDX_FL_NUM  4
-const eADCInput arr_adc_input[5] = {ADC2, ADC3, ADC4, ADC0, ADC1};
+const eADCInput arr_adc_input[5] = {ADC4, ADC3, ADC2, ADC0, ADC1};
 
 const eADCReference FLASH_REF = AVcc;
 const eADCReference FDBK_REF  = Internal_2p56V;
 
 typedef enum
 {
-    STATE_ADC_READ_FEEDBACK,
     STATE_ADC_SWITCH_TO_5V_REF,
+    STATE_ADC_READ_FEEDBACK,    
     STATE_ADC_READ_FREQ_FLASHES,
     STATE_ADC_READ_NUM_FLASHES,
-    STATE_ADC_SWITCH_TO_2p56V_REF,
     STATE_ADC_TEST,
 }ADC_STATE_MACHINE;
 
 volatile ADC_STATE_MACHINE ge_ADC_STATE;
 
-//feedback ref is 2.56V. Feedback resistor is 0.24Ohms. V=IR @1A: (1)*.24 = .24V
-// (2.56/1024) = 1 bit of adc resolution = .0025V
-//solving I = V/R = .0025V/.24Ohm = 10.4mA per bit 
-// V@1A / adc_resolution = .24/.0025 = 96 = adc_reading at 1amp
-// 100mA = 9.6
-#define FEEDBACK_1_AMP      96
-#define FEEDBACK_1p5_AMP    144
-#define FEEDBACK_100_mAMP   9
+//feedback ref is 5V. Feedback resistor is 0.680 Ohms. V=IR @1A: (1)*.68 = .68V
+// (5V/1024) = 1 bit of adc resolution = 0.00488V
+//feedback ref goes through non-inverting opamp Av = 6.55 
+// V@1A / adc_resolution = (0.68V*6.55)/0.00488V = 912 = adc_reading at 1amp
+#define FEEDBACK_1_AMP      912
+#define FEEDBACK_1p12_AMP   1024    //max value
+#define FEEDBACK_100_mAMP   91
 
 //adc input
 const uint16_t gbCURRENT_LIMIT = FEEDBACK_1_AMP;
@@ -96,6 +95,17 @@ void init_timer2(void);
 void init_timer2AsOneSecondTimer(void);
 
 /************************************************************************/
+/*                           RGB STATUS LED                             */
+/************************************************************************/
+#define LED_OUTPUT_PORT     PORTD
+#define LED_B_OUTPUT_PIN    PIND5
+#define LED_G_OUTPUT_PIN    PIND6
+#define LED_R_OUTPUT_PIN    PIND7
+#define LED_OUTPUT_PIN      LED_R_OUTPUT_PIN    //aia.test you need to do more with status LED
+#define LED_ACTIVE_LOW      true
+
+void init_RGB_status_LED(void);
+/************************************************************************/
 /*                               MAIN                                   */
 /************************************************************************/
 
@@ -119,7 +129,10 @@ typedef enum
 
 //Status LED
 #define LED_OUTPUT_PORT     PORTD
-#define LED_OUTPUT_PIN      PIND5
+#define LED_B_OUTPUT_PIN    PIND5
+#define LED_G_OUTPUT_PIN    PIND6
+#define LED_R_OUTPUT_PIN    PIND7
+#define LED_OUTPUT_PIN      LED_R_OUTPUT_PIN    //aia.test you need to do mroe with status LED
 
 //pwm values for light levels
 #define DUTY_CYCLE_FULL_BRIGHTNESS 100 /// used for braking or turn signal
