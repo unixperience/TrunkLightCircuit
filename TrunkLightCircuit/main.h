@@ -114,6 +114,7 @@ typedef enum
     DebugADC,
     DebugUART,
     DebugPWM,
+    DebugLED,
 }eDEBUG_MODES;
 
 #define ARR_IDX_LEFT    0

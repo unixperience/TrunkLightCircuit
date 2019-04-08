@@ -256,7 +256,7 @@ ISR(TIMER1_OVF_vect)
     }
     else
     {
-        statusLed_set_color(LED_RED);
+        statusLed_set_color(eLED_RED);
         statusLed_On();
     }        
 }    
@@ -384,9 +384,21 @@ void init_timer2AsOneSecondTimer(void)
 #pragma region RGB_status_led
 void init_RGB_status_LED(void)
 {
-    statusLed_init(PORTD, LED_R_OUTPUT_PIN, LED_G_OUTPUT_PIN, LED_B_OUTPUT_PIN, LED_ACTIVE_LOW);
+    if( statusLed_init(&PORTD,
+                   LED_R_OUTPUT_PIN, 
+                   LED_G_OUTPUT_PIN, 
+                   LED_B_OUTPUT_PIN, 
+                   LED_ACTIVE_LOW))
+    {
+        UART_transmitString("LED init success\n\0");
+    }
+    else
+    {
+        UART_transmitString("LED init fail\n\0");
+    }
+                    
     
-    statusLed_set_color(LED_GREEN);
+    statusLed_set_color(eLED_GREEN);
 }
 #pragma endregion RGB_status_led
 /************************************************************************/
@@ -633,6 +645,7 @@ int main(void)
     init_adc(false);
     init_timers();
     init_RGB_status_LED();
+       
         
     //enable global interrupts
     sei();
@@ -655,7 +668,7 @@ int main(void)
    
     now that we've determined system type we can go to work with regular program
     */
-    statusLed_set_color(LED_YELLOW);
+    statusLed_set_color(eLED_YELLOW);
     statusLed_On();
     setPWMDutyCycle(arr_pwm_output[ARR_IDX_BRAKE], DUTY_CYCLE_FULL_BRIGHTNESS);
     adc_select_ref(FDBK_REF);
@@ -682,7 +695,7 @@ int main(void)
     if (brake_light_test_reading >= FEEDBACK_100_mAMP)
     {
         separate_function_lights = true;
-        statusLed_set_color(LED_GREEN);
+        statusLed_set_color(eLED_GREEN);
         #ifdef DEBUG
         UART_transmitString("Detected Separate fn\r\n\0");
         #endif // DEBUG
@@ -690,7 +703,7 @@ int main(void)
     else
     {
         separate_function_lights = false;
-        statusLed_set_color(LED_AQUA);
+        statusLed_set_color(eLED_AQUA);
         #ifdef DEBUG
         UART_transmitString("Detected Integrated fn\r\n\0");
         #endif // DEBUG
@@ -737,13 +750,15 @@ int main(void)
         setPWMDutyCycle(arr_pwm_output[ARR_IDX_LEFT], DUTY_CYCLE_LOW_BRIGHTNESS);
         setPWMDutyCycle(arr_pwm_output[ARR_IDX_RIGHT], DUTY_CYCLE_LOW_BRIGHTNESS);
     }        
-    
+
+#ifndef DEBUG    
     //start adc state machine
     adc_start_conversion(false);
+#endif
 
     while (1)
     {
-        /*
+        
 #ifdef DEBUG      
         UART_ReadLineRxBuff(ret_data, &ret_len);
         
@@ -790,8 +805,14 @@ int main(void)
                         //ensures PWM is running
                         init_timers();
                     }
+                    else if (ret_data[0] == 'l')
+                    {
+                        curr_debug_mode = DebugLED;
+                        init_RGB_status_LED();
+                        UART_transmitString("Starting RGB LED debug mode");
+                    }                        
                 }//if (curr_debug_mode == DebugDisabled)
-                else if (curr_debug_mode == DebugADC)
+               /* else if (curr_debug_mode == DebugADC)
                 {
                     if (ret_data[0] == 'Q')
                     {
@@ -932,6 +953,82 @@ int main(void)
                         }
                     }//else if (ret_data[0] == 'e') 
                 }// else if (curr_debug_mode == DebugPWM) 
+                */
+                else if (curr_debug_mode == DebugLED)
+                {
+                    switch  (ret_data[0])
+                    {
+                        case '1':
+                        case 'r':
+                        {
+                            statusLed_On();
+                            statusLed_set_color(eLED_RED);         
+                            UART_transmitString("RED\n\0");
+                            break;
+                        }   
+                        case '2':
+                        case 'y':
+                        {
+                            statusLed_On();
+                            statusLed_set_color(eLED_YELLOW);
+                            UART_transmitString("YELLOW\n\0");
+                            break;
+                        }
+                        case '3':
+                        case 'g':
+                        {
+                            statusLed_On();
+                            statusLed_set_color(eLED_GREEN);
+                            UART_transmitString("GREEN\n\0");
+                            break;
+                        }
+                        case '4':
+                        case 'a':
+                        {
+                            statusLed_On();
+                            statusLed_set_color(eLED_AQUA);
+                            UART_transmitString("AQUA\n\0");
+                            break;
+                        }
+                        case '5':
+                        case 'b':
+                        {
+                            statusLed_On();
+                            statusLed_set_color(LED_BLUE);
+                            UART_transmitString("BLUE\n\0");
+                            break;
+                        }
+                        case '6':
+                        case 'p':
+                        {
+                            statusLed_On();
+                            statusLed_set_color(eLED_PURPLE);
+                            UART_transmitString("PURPLE\n\0");
+                            break;
+                        }
+                        case '7':
+                        case 'w':
+                        {
+                            statusLed_On();
+                            statusLed_set_color(eLED_WHITE);
+                            UART_transmitString("WHITE\n\0");
+                            break;
+                        }
+                        case 't':
+                        {
+                            statusLed_toggle();
+                            UART_transmitString("toggle\n\0");
+                            break;
+                        }
+                        default:
+                        {
+                            statuseLED_OFF();
+                            statusLed_set_color(eLED_OFF);
+                            UART_transmitString("OFF\n\0");
+                            break;
+                        }
+                    } //end switch                                          
+                } // else if (curr_debug_mode == DebugLED)               
             }//if (debug_mode_enabled)
             
 //             
@@ -955,8 +1052,8 @@ int main(void)
             UART_transmitNewLine();
             
         }//end ret_len > 0
-#endif // DEBUG
-*/
+#else // !DEBUG
+
                 
         if (separate_function_lights)
         {
@@ -1075,7 +1172,7 @@ int main(void)
             //brake input and gb_BRAKE_ON is handled by external interrupt 1
             
         }//end else (!seperate_function_lights)
+#endif // DEBUG
     }//end while(1)
-    
 }//main
 
