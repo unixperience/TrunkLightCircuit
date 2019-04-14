@@ -35,7 +35,7 @@ void init_uart_debug(void);
 const eADCInput arr_adc_input[5] = {ADC4, ADC3, ADC2, ADC0, ADC1};
 
 const eADCReference FLASH_REF = AVcc;
-const eADCReference FDBK_REF  = Internal_2p56V;
+const eADCReference FDBK_REF  = AVcc; //aia.testInternal_2p56V;
 
 typedef enum
 {
@@ -76,9 +76,15 @@ ISR(ADC_vect);
 //  to get down to 1 second we need to wait 61 ovf before it starts
 #define TIMER2_ADDTL_1_SEC_PRESCALE 61
 
+//the overflow interrupt should occur at 244Hz, we want the led to
+//flash at 2Hz so we need to slow it down
+#define TIMER0_ADDTL_2HZ_PRESCALE 122
+
 volatile uint8_t gu8_NUM_TIMER0_OVF;
 volatile uint8_t gu8_NUM_TIMER1_OVF;
 volatile uint8_t gu8_NUM_TIMER2_OVF;
+
+uint8_t gu8_heartbeat_prescale;
 
 //LEFT, BRAKE, RIGHT
 const ePWM_OUTPUT arr_pwm_output[3] = {epwm_1a, epwm_2, epwm_1b};
@@ -148,7 +154,7 @@ volatile bool gb_RIGHT_TURN_SIGNAL_ON;
 volatile bool gb_OVERCURRENT_TRIPPED;
 
 volatile uint16_t gu8_MAX_NUM_FLASHES;
-volatile uint16_t gu8_FLASH_FREQ_PRESCALER;
+volatile uint16_t gu16_FLASH_FREQ_PRESCALER;
 volatile uint8_t gu8_NUM_OCCURED_FLASHES;
 volatile uint16_t gu16_adc_test_val;
 

@@ -61,6 +61,32 @@ ISR(ADC_vect)
         //reads old value
         arr_adc_conv_val[gb_NUM_ADC_CONVERSIONS % 3] = adc_read10_value();
         
+        //processes value, if the I (current reading) is too high turn off the output
+        // and set a flag
+        if (arr_adc_conv_val[gb_NUM_ADC_CONVERSIONS % 3] > gbCURRENT_LIMIT)
+        {
+            /*aia.testdisablePWMOutput(arr_pwm_output[gb_NUM_ADC_CONVERSIONS % 3]);
+                
+            //this value can only be set. it is only cleared by a system reset
+            gb_OVERCURRENT_TRIPPED = true;
+                
+            #ifdef DEBUG
+            UART_transmitString("Overcurrent!\r\n\0");            
+            #endif // DEBUG
+            */
+        }
+            
+        if ((gb_NUM_ADC_CONVERSIONS % 3) == 0)
+        {
+            UART_transmitUint16(arr_adc_conv_val[ARR_IDX_LEFT]);
+            UART_transmitUint16(arr_adc_conv_val[ARR_IDX_BRAKE]);
+            UART_transmitUint16(arr_adc_conv_val[ARR_IDX_RIGHT]);
+            UART_transmitNewLine();
+        }
+
+        //moves to new input
+        gb_NUM_ADC_CONVERSIONS++;        
+        
         //with our ADC clock speed 125k/250k this should be ever 3-5 seconds
         //moving the channel switch before other processing will ensure the input change is stable
         if (gb_NUM_ADC_CONVERSIONS > FDBK_CYCLES)
@@ -71,33 +97,8 @@ ISR(ADC_vect)
         }
         else
         {
-            adc_select_input_channel(arr_adc_input[(gb_NUM_ADC_CONVERSIONS+1) % 3]);
-        }
-            
-        //processes value, if the I (current reading) is too high turn off the output
-        // and set a flag
-        if (arr_adc_conv_val[gb_NUM_ADC_CONVERSIONS % 3] > gbCURRENT_LIMIT)
-        {
-            disablePWMOutput(arr_pwm_output[gb_NUM_ADC_CONVERSIONS % 3]);
-                
-            //this value can only be set. it is only cleared by a system reset
-            gb_OVERCURRENT_TRIPPED = true;
-                
-            #ifdef DEBUG
-            UART_transmitString("Overcurrent!\r\n\0");
-            #endif // DEBUG
-        }
-            
-        #ifdef DEBUG_PRINT
-        UART_transmitString("ADC\0");
-        UART_transmitUint8(gb_NUM_ADC_CONVERSIONS % 3);
-        UART_transmitString(":\0");
-        UART_transmitUint16(arr_adc_conv_val[gb_NUM_ADC_CONVERSIONS % 3]);
-        UART_transmitNewLine();
-        #endif // DEBUG
-
-        //moves to new input
-        gb_NUM_ADC_CONVERSIONS++;               
+            adc_select_input_channel(arr_adc_input[(gb_NUM_ADC_CONVERSIONS) % 3]);
+        }       
             
         //start next conversion, but don't wait for completion
         adc_start_conversion(false);
@@ -138,7 +139,7 @@ ISR(ADC_vect)
         // Since we want to effectively double our frequency rather than doing 244Hz/val_1_to_10
         // we will do (244/2) / val_1_to_10 which is the same as our table
         //           ovf_freq/  ((    val is 0-9    ) now its 1-10)
-        gu8_FLASH_FREQ_PRESCALER = 122.0 / ((adc_read10_value() / 102.4) + 1);
+        gu16_FLASH_FREQ_PRESCALER = 122.0 / ((adc_read10_value() / 102.4) + 1);
         
         //move to next state
         adc_select_input_channel(arr_adc_input[ARR_IDX_FL_NUM]);
@@ -146,7 +147,7 @@ ISR(ADC_vect)
         
         #ifdef DEBUG
         UART_transmitString(" freq:\0");
-        UART_transmitUint16(gu8_FLASH_FREQ_PRESCALER);
+        UART_transmitUint16(gu16_FLASH_FREQ_PRESCALER);
         #endif // DEBUG
                 
         adc_start_conversion(false);
@@ -189,14 +190,23 @@ ISR(ADC_vect)
 /************************************************************************/
 #pragma region timers
 
-//we only want this timer to do something at 20 Hz, since this interrupt is
-//triggered every 61Hz, we need to skip every 3 overflows
+//this interrupt should occur at ~244Hz
 ISR(TIMER0_OVF_vect)
 {
+    if (gu8_heartbeat_prescale++ > TIMER0_ADDTL_2HZ_PRESCALE)
+    {
+        statusLed_toggle();
+        gu8_heartbeat_prescale = 0;    
+    }    
+    
     if (gb_BRAKE_ON)
     {
-        if (gu8_NUM_TIMER0_OVF >= gu8_FLASH_FREQ_PRESCALER)
+        //even this value is uint16 because it is read from the 10 bit ADC 
+        //and then we do some math on it to get it back into 8bit range
+        if (gu8_NUM_TIMER0_OVF >= gu16_FLASH_FREQ_PRESCALER)
         {   
+            gu8_NUM_TIMER0_OVF = 0;
+            
             //if we have not done all our flashes
             if (gu8_NUM_OCCURED_FLASHES < gu8_MAX_NUM_FLASHES)
             {
@@ -268,7 +278,7 @@ ISR(TIMER1_OVF_vect)
  *  function is over.
  */
 ISR(TIMER2_OVF_vect)
-{
+{        
     //if the turn signal isn't on, we don't have to do anything with this interrupt
     if (gb_LEFT_TURN_SIGNAL_ON || gb_RIGHT_TURN_SIGNAL_ON)
     {
@@ -288,6 +298,13 @@ ISR(TIMER2_OVF_vect)
         {
             gu8_NUM_TIMER2_OVF++;
         }
+    }
+    
+    //toggles status LED at 0.5Hz every second
+    if (gu8_heartbeat_prescale++ > TIMER2_ADDTL_1_SEC_PRESCALE)
+    {
+        gu8_heartbeat_prescale = 0;
+        statusLed_toggle();
     }
 }
 
@@ -460,12 +477,14 @@ void init_globals(void)
     gb_RIGHT_TURN_SIGNAL_ON = false;
     gb_OVERCURRENT_TRIPPED = false;
 
-    gu8_MAX_NUM_FLASHES =  8;
-    gu8_FLASH_FREQ_PRESCALER = 122;
+    gu8_MAX_NUM_FLASHES =  10;
+    gu16_FLASH_FREQ_PRESCALER = 12;    
     
     gu8_NUM_TIMER0_OVF = 0;
     gu8_NUM_TIMER1_OVF = 0;
     gu8_NUM_TIMER2_OVF = 0;
+    
+    gu8_heartbeat_prescale = 0;
 }
 
 void init_IO(void)
@@ -546,12 +565,16 @@ int main_pwm_test(void)
         _delay_ms(2500);
     }
 }
+*/
+
 
 int main_adc(void)
 {
     uint16_t value1;
     uint16_t value2;
     uint16_t value3;
+    uint16_t value4;
+    uint16_t value5;
     
     
     init_uart_debug();
@@ -560,26 +583,27 @@ int main_adc(void)
     init_timers();
     setPWMDutyCycle(arr_pwm_output[ARR_IDX_RIGHT], 100);
     setPWMDutyCycle(arr_pwm_output[ARR_IDX_LEFT], 100);
+    adc_select_ref(FLASH_REF);
     
     while(1)
     {
-        adc_select_ref(FLASH_REF);
+        //adc_select_ref(FLASH_REF);
         
         adc_select_input_channel(arr_adc_input[ARR_IDX_FL_NUM]);
         adc_start_conversion(true);
-        value1 = adc_read10_value();        
+        value4 = adc_read10_value();        
         
         adc_select_input_channel(arr_adc_input[ARR_IDX_FL_FREQ]);
         adc_start_conversion(true);
-        value2 = adc_read10_value();
+        value5 = adc_read10_value();
         
         //print
         UART_transmitString("Num:\0");
-        UART_transmitUint16(value1);
+        UART_transmitUint16(value4);
         UART_transmitString(" Freq:\0");
-        UART_transmitUint16(value2);
+        UART_transmitUint16(value5);
         
-        adc_select_ref(FDBK_REF);
+        //adc_select_ref(FDBK_REF);
         adc_select_input_channel(arr_adc_input[ARR_IDX_LEFT]);
         adc_start_conversion(true);
         value1 = adc_read10_value();
@@ -590,7 +614,7 @@ int main_adc(void)
         
          adc_select_input_channel(arr_adc_input[ARR_IDX_BRAKE]);
          adc_start_conversion(true);
-         value2 = adc_read10_value();
+         value3 = adc_read10_value();
         
         //print
         UART_transmitString(" Left:\0");
@@ -605,7 +629,7 @@ int main_adc(void)
     
     return 0;
 }
-*/
+
 /** @brief Writes the current position of the cursor
  *         into the arguments row and col.
  *	Just a regular detailed description goes here
@@ -627,21 +651,22 @@ int main(void)
     bool debug_mode_enabled = false;
     eDEBUG_MODES curr_debug_mode;
     
-    /*initialization order
-    1. uart
-    2. adc (must be done before timers)
-    3. timers    
-    */
+    //initialization order
+    //1. uart
+    //2. adc (must be done before timers)
+    //3. timers    
+    
 #ifdef DEBUG
     init_uart_debug();
     
     UART_transmitString("Trunk Light FW starting v 1.0\r\n\0");
 #endif // DEBUG
 
+    //order of initialization is important
     init_IO();
     init_globals();
     init_external_interupts();
-    //no interrupts
+    //no interrupts until AFTER we take brake current reading.
     init_adc(false);
     init_timers();
     init_RGB_status_LED();
@@ -668,11 +693,13 @@ int main(void)
    
     now that we've determined system type we can go to work with regular program
     */
+    
     statusLed_set_color(eLED_YELLOW);
     statusLed_On();
     setPWMDutyCycle(arr_pwm_output[ARR_IDX_BRAKE], DUTY_CYCLE_FULL_BRIGHTNESS);
     adc_select_ref(FDBK_REF);
-    adc_select_input_channel(arr_adc_input[ARR_IDX_FL_FREQ]);
+    //adc_select_input_channel(arr_adc_input[ARR_IDX_FL_FREQ]);
+    adc_select_input_channel(arr_adc_input[ARR_IDX_BRAKE]);    
     _delay_ms(10);
     //adc start conversion and wait for result, normally the first one is inaccurate
     //so we wont even check it
@@ -689,7 +716,7 @@ int main(void)
     #endif // DEBUG
     
     //init adc for program use, with interrupts
-    init_adc(true);
+    init_adc(false);
     
     //if we have at least 100mA flowing, we know we have a brake light connected
     if (brake_light_test_reading >= FEEDBACK_100_mAMP)
@@ -709,9 +736,6 @@ int main(void)
         #endif // DEBUG
     }
     
-    //aia.test need to verify second mode
-    separate_function_lights = true;
-    
     if (separate_function_lights)
     {
         // here we have a separate brake and turn signals. The turn signals only
@@ -719,7 +743,7 @@ int main(void)
         
         // the lights are flashed by enabling and disabling the PWM output
         // this ensures no dim glow/leakage we would get if we left them on with 0% duty cycle
-        setPWMDutyCycle(arr_pwm_output[ARR_IDX_LEFT], DUTY_CYCLE_FULL_BRIGHTNESS);
+        setPWMDutyCycle(arr_pwm_output[ARR_IDX_LEFT],  DUTY_CYCLE_FULL_BRIGHTNESS);
         setPWMDutyCycle(arr_pwm_output[ARR_IDX_RIGHT], DUTY_CYCLE_FULL_BRIGHTNESS);
         
         disablePWMOutput(arr_pwm_output[ARR_IDX_LEFT]);
@@ -737,7 +761,7 @@ int main(void)
         //must operate as brake AND turn signal
         
         //this will disable pwm on the brake light 
-        //now timer2 will be repurposed as a 1 second timer
+        //now timer2 will be re-purposed as a 1 second timer
         //when turn signals are on we want it to go from full/off for contrast
         //if the signal doesn't go high for 1 second, we can resume brake duty
         init_timer2AsOneSecondTimer();
@@ -751,15 +775,16 @@ int main(void)
         setPWMDutyCycle(arr_pwm_output[ARR_IDX_RIGHT], DUTY_CYCLE_LOW_BRIGHTNESS);
     }        
 
-#ifndef DEBUG    
+#ifndef DEBUG_DIAG    
     //start adc state machine
+    init_adc(true);
     adc_start_conversion(false);
 #endif
 
     while (1)
     {
         
-#ifdef DEBUG      
+#ifdef DEBUG_DIAG      
         UART_ReadLineRxBuff(ret_data, &ret_len);
         
         if (ret_len > 0)
@@ -954,6 +979,7 @@ int main(void)
                     }//else if (ret_data[0] == 'e') 
                 }// else if (curr_debug_mode == DebugPWM) 
                 */
+               
                 else if (curr_debug_mode == DebugLED)
                 {
                     switch  (ret_data[0])
@@ -1052,7 +1078,7 @@ int main(void)
             UART_transmitNewLine();
             
         }//end ret_len > 0
-#else // !DEBUG
+#else // !DEBUG_DIAG
 
                 
         if (separate_function_lights)
@@ -1069,7 +1095,7 @@ int main(void)
             {
                 enablePWMOutput(arr_pwm_output[ARR_IDX_LEFT]);
                 #ifdef DEBUG
-                UART_transmitString("LEFT on\r\n\0");
+                UART_transmitString("LEFT ON\r\n\0");
                 #endif // DEBUG
             }
             else
@@ -1082,7 +1108,7 @@ int main(void)
             {
                 enablePWMOutput(arr_pwm_output[ARR_IDX_RIGHT]);
                 #ifdef DEBUG
-                UART_transmitString("RIGHT on\r\n\0");
+                UART_transmitString("RIGHT ON\r\n\0");
                 #endif // DEBUG
             }
             else
@@ -1116,7 +1142,7 @@ int main(void)
                 gb_LEFT_TURN_SIGNAL_ON = true;
                 
                 #ifdef DEBUG
-                UART_transmitString("Left on\r\n\0");
+                UART_transmitString("left on\r\n\0");
                 #endif // DEBUG
             }
             else
@@ -1147,7 +1173,7 @@ int main(void)
                 gb_RIGHT_TURN_SIGNAL_ON = true;
                 
                 #ifdef DEBUG
-                UART_transmitString("Right on\r\n\0");
+                UART_transmitString("right on\r\n\0");
                 #endif // DEBUG
             }
             else
