@@ -1,6 +1,9 @@
 /*
  * main.h
- *
+ * auth date    Descp
+ * aia  190414  Rev 1.0.0
+ *              Official release, Completely working code functions with Rev02 board
+ *              
  * Created: 12/17/2018 9:04:51 PM
  *  Author: Andrew
  */ 
@@ -35,7 +38,8 @@ void init_uart_debug(void);
 const eADCInput arr_adc_input[5] = {ADC4, ADC3, ADC2, ADC0, ADC1};
 
 const eADCReference FLASH_REF = AVcc;
-const eADCReference FDBK_REF  = AVcc; //aia.testInternal_2p56V;
+const eADCReference FDBK_REF  = AVcc;   //used to have a 2.56 ref, but newest code has opamp
+    //so we can keep the 5V reference
 
 typedef enum
 {
@@ -44,6 +48,7 @@ typedef enum
     STATE_ADC_READ_FREQ_FLASHES,
     STATE_ADC_READ_NUM_FLASHES,
     STATE_ADC_TEST,
+    STATE_ADC_HALT,
 }ADC_STATE_MACHINE;
 
 volatile ADC_STATE_MACHINE ge_ADC_STATE;
@@ -54,7 +59,7 @@ volatile ADC_STATE_MACHINE ge_ADC_STATE;
 // V@1A / adc_resolution = (0.68V*6.55)/0.00488V = 912 = adc_reading at 1amp
 #define FEEDBACK_1_AMP      912
 #define FEEDBACK_1p12_AMP   1024    //max value
-#define FEEDBACK_100_mAMP   91
+#define FEEDBACK_50_mAMP    46 //45.6
 
 //adc input
 const uint16_t gbCURRENT_LIMIT = FEEDBACK_1_AMP;
@@ -76,15 +81,9 @@ ISR(ADC_vect);
 //  to get down to 1 second we need to wait 61 ovf before it starts
 #define TIMER2_ADDTL_1_SEC_PRESCALE 61
 
-//the overflow interrupt should occur at 244Hz, we want the led to
-//flash at 2Hz so we need to slow it down
-#define TIMER0_ADDTL_2HZ_PRESCALE 122
-
 volatile uint8_t gu8_NUM_TIMER0_OVF;
 volatile uint8_t gu8_NUM_TIMER1_OVF;
 volatile uint8_t gu8_NUM_TIMER2_OVF;
-
-uint8_t gu8_heartbeat_prescale;
 
 //LEFT, BRAKE, RIGHT
 const ePWM_OUTPUT arr_pwm_output[3] = {epwm_1a, epwm_2, epwm_1b};
@@ -138,7 +137,6 @@ typedef enum
 #define LED_B_OUTPUT_PIN    PIND5
 #define LED_G_OUTPUT_PIN    PIND6
 #define LED_R_OUTPUT_PIN    PIND7
-#define LED_OUTPUT_PIN      LED_R_OUTPUT_PIN    //aia.test you need to do mroe with status LED
 
 //pwm values for light levels
 #define DUTY_CYCLE_FULL_BRIGHTNESS 100 /// used for braking or turn signal

@@ -380,20 +380,3 @@ void disableTimerOverflowInterrupt(eTIMER val)
         BIT_CLEAR(TIMSK, TOIE2);
     }
 }
-
-void set_freq2(uint8_t unscaled_0_255)
-{
-    //with the prescaler this interrupt occurs at 1MHz / 1024 = 976.5625Hz
-    //we use a software prescaler of 4 to get it down to 244.140625Hz
-    
-    //we want the flash frequency ( a full on AND off cycle) to range between 1-10Hz
-    //the extra 2 in the denominator is because a cycle is ON and OFF (2 cycles)
-    // (freq_after_prescaler) / (top_of_timer * 2) = flash_frequency
-    
-    // MIN: 244Hz / (122 * 2) =  1Hz
-    // MAX: 244Hz / ( 12 * 2) = 10Hz
-    // so our effective range is 110 points
-    
-    //we need to map 256 => 110
-    OCR2 =  (256.0/110.0) * unscaled_0_255 + 12;
-}

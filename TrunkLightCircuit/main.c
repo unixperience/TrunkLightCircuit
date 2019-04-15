@@ -43,11 +43,13 @@ void init_adc(bool enable_interrupts)
     adc_set_prescale(clk_over_64);
     #endif
 
+    adc_select_ref(FLASH_REF);
     adc_right_shift_result();
+    adc_select_input_channel(arr_adc_input[ARR_IDX_LEFT]);
     
     if (enable_interrupts)
     {
-        adc_enableFreeRunningMode();
+        //aia.testadc_enableFreeRunningMode();
         adc_enable_interrupt_on_conversion();
     }    
     
@@ -55,35 +57,40 @@ void init_adc(bool enable_interrupts)
 }
 
 ISR(ADC_vect)
-{
+{    
     if (ge_ADC_STATE == STATE_ADC_READ_FEEDBACK)
     {
+        //curr_reading = adc_read10_value();
         //reads old value
-        arr_adc_conv_val[gb_NUM_ADC_CONVERSIONS % 3] = adc_read10_value();
+        arr_adc_conv_val[gb_NUM_ADC_CONVERSIONS % 3] =  adc_read10_value();
         
+       
         //processes value, if the I (current reading) is too high turn off the output
         // and set a flag
         if (arr_adc_conv_val[gb_NUM_ADC_CONVERSIONS % 3] > gbCURRENT_LIMIT)
         {
-            /*aia.testdisablePWMOutput(arr_pwm_output[gb_NUM_ADC_CONVERSIONS % 3]);
+            disablePWMOutput(arr_pwm_output[gb_NUM_ADC_CONVERSIONS % 3]);
                 
             //this value can only be set. it is only cleared by a system reset
             gb_OVERCURRENT_TRIPPED = true;
                 
             #ifdef DEBUG
-            UART_transmitString("Overcurrent!\r\n\0");            
+            ge_ADC_STATE = STATE_ADC_HALT;     
+            UART_transmitString("Overcurrent!\r\n\0");                         
             #endif // DEBUG
-            */
         }
-            
+        
+        #ifdef DEBUG
         if ((gb_NUM_ADC_CONVERSIONS % 3) == 0)
         {
             UART_transmitUint16(arr_adc_conv_val[ARR_IDX_LEFT]);
             UART_transmitUint16(arr_adc_conv_val[ARR_IDX_BRAKE]);
             UART_transmitUint16(arr_adc_conv_val[ARR_IDX_RIGHT]);
+           
             UART_transmitNewLine();
         }
-
+        #endif
+        
         //moves to new input
         gb_NUM_ADC_CONVERSIONS++;        
         
@@ -98,8 +105,8 @@ ISR(ADC_vect)
         else
         {
             adc_select_input_channel(arr_adc_input[(gb_NUM_ADC_CONVERSIONS) % 3]);
-        }       
-            
+        }
+                             
         //start next conversion, but don't wait for completion
         adc_start_conversion(false);
     }
@@ -122,13 +129,13 @@ ISR(ADC_vect)
         // so we will need an additional software prescaler to get to our desired
         // frequency range
         //
-        //           1024   |  256
+        //           1024   |  256* we are using 256
         // FREQ | PRESCALER | PRESCALER
         //------+-----------+-----------
         //  2   |  30       |   122.1
         //  4   |  15       |   61.0
         //  6   |  10       |   40.6
-        //  8   |  7.5      |   30.5
+        //  8   |  7.5      |   30.5    <--after testing 8Hz is lowest reasonable flash rate
         // 10   |  6        |   24.4
         // 12   |  5        |   20.5
         // 14   |  4.29     |   17.5
@@ -139,7 +146,7 @@ ISR(ADC_vect)
         // Since we want to effectively double our frequency rather than doing 244Hz/val_1_to_10
         // we will do (244/2) / val_1_to_10 which is the same as our table
         //           ovf_freq/  ((    val is 0-9    ) now its 1-10)
-        gu16_FLASH_FREQ_PRESCALER = 122.0 / ((adc_read10_value() / 102.4) + 1);
+        gu16_FLASH_FREQ_PRESCALER = 30.0 / ((adc_read10_value() / 146.2) + 1);
         
         //move to next state
         adc_select_input_channel(arr_adc_input[ARR_IDX_FL_NUM]);
@@ -182,6 +189,11 @@ ISR(ADC_vect)
 
         adc_start_conversion(false);
     }
+    else  if (ge_ADC_STATE == STATE_ADC_HALT)
+    {
+         UART_transmitString(".\0");
+         statusLed_set_color(eLED_YELLOW);
+    }
 }
 #pragma endregion adc
 
@@ -192,13 +204,7 @@ ISR(ADC_vect)
 
 //this interrupt should occur at ~244Hz
 ISR(TIMER0_OVF_vect)
-{
-    if (gu8_heartbeat_prescale++ > TIMER0_ADDTL_2HZ_PRESCALE)
-    {
-        statusLed_toggle();
-        gu8_heartbeat_prescale = 0;    
-    }    
-    
+{    
     if (gb_BRAKE_ON)
     {
         //even this value is uint16 because it is read from the 10 bit ADC 
@@ -299,13 +305,6 @@ ISR(TIMER2_OVF_vect)
             gu8_NUM_TIMER2_OVF++;
         }
     }
-    
-    //toggles status LED at 0.5Hz every second
-    if (gu8_heartbeat_prescale++ > TIMER2_ADDTL_1_SEC_PRESCALE)
-    {
-        gu8_heartbeat_prescale = 0;
-        statusLed_toggle();
-    }
 }
 
 //16bit reads -> read low -> read high
@@ -361,6 +360,9 @@ void init_timer1(void)
     //no real reason for this value, as long as its PWM we are fine
     // 16MHz / (8_bit_max * prescaler) = 16MHz / (256 * 64) = 976.5625Hz
     SetTimerPrescale(etimer_1, tmr_prscl_clk_over_64);
+    
+    //for heartbeat LED
+    enableTimerOverflowInterrupt(etimer_1);
 }
 
 /* Timer 2 has one PWM output pin OC2 and will be used for the brake light function in
@@ -467,7 +469,7 @@ void init_external_interupts(void)
 void init_globals(void)
 {
     gb_NUM_ADC_CONVERSIONS = 0;
-    ge_ADC_STATE = STATE_ADC_SWITCH_TO_5V_REF;
+    ge_ADC_STATE = STATE_ADC_READ_FEEDBACK;  //init
     
     //the temptation might be to set these flags in a bit field in a single 8 bit register
     //but since they are set by multiple interrupts, we lessen the probability of data
@@ -483,8 +485,6 @@ void init_globals(void)
     gu8_NUM_TIMER0_OVF = 0;
     gu8_NUM_TIMER1_OVF = 0;
     gu8_NUM_TIMER2_OVF = 0;
-    
-    gu8_heartbeat_prescale = 0;
 }
 
 void init_IO(void)
@@ -659,7 +659,7 @@ int main(void)
 #ifdef DEBUG
     init_uart_debug();
     
-    UART_transmitString("Trunk Light FW starting v 1.0\r\n\0");
+    UART_transmitString("Trunk Light FW starting v 1.0.0 2019/04/14\r\n\0");
 #endif // DEBUG
 
     //order of initialization is important
@@ -719,7 +719,7 @@ int main(void)
     init_adc(false);
     
     //if we have at least 100mA flowing, we know we have a brake light connected
-    if (brake_light_test_reading >= FEEDBACK_100_mAMP)
+    if (brake_light_test_reading >= FEEDBACK_50_mAMP)
     {
         separate_function_lights = true;
         statusLed_set_color(eLED_GREEN);
@@ -734,7 +734,7 @@ int main(void)
         #ifdef DEBUG
         UART_transmitString("Detected Integrated fn\r\n\0");
         #endif // DEBUG
-    }
+    }    
     
     if (separate_function_lights)
     {
@@ -785,6 +785,9 @@ int main(void)
     {
         
 #ifdef DEBUG_DIAG      
+        //originally I planned to enable al debug modes, but unfortunately
+        //they took up too much memory (only 8kb avaliable)
+        // so I had to enable them one at a time using block comments
         UART_ReadLineRxBuff(ret_data, &ret_len);
         
         if (ret_len > 0)

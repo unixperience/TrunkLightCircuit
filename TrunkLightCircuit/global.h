@@ -34,10 +34,12 @@
 #define BRAKE_OFF_DUTY_CYCLE      1
 #define PWM_8BIT_50_DUTY_CYC    128
 
-typedef enum{false =0, true = 1} bool;
-/*#define true 1
-#define false 0
-*/ //aia.test
+typedef enum
+{
+    false =0, 
+    true = 1
+} bool;
+
 /// This code is compatible with two lighting configurations
 /// 1. separate   3 light outputs: left, brake, right
 /// 2. integrated 2 light outputs: left/brake, right/brake

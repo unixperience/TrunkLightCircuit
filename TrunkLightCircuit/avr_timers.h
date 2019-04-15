@@ -54,9 +54,4 @@ void disablePWMOutput(ePWM_OUTPUT output_pin);
 void enableTimerOverflowInterrupt(eTIMER val);
 void disableTimerOverflowInterrupt(eTIMER val);
 
-//////////////////////////////////////////////////////////////////////////
-//aia.test //this was an old function, it doens't belong here but maybe in the main? idk
-//we will decide later, i dont think i even need this exact code, but something similar
-//ill keep it for reference
-void set_freq2(uint8_t unscaled_0_255);
 #endif /* AVR_TIMERS_H_ */
