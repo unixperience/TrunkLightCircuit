@@ -29,7 +29,7 @@ void init_uart_debug(void);
 /************************************************************************/
 #define FLASH_FREQ_INPUT_IDX 3
 #define FLASH_NUM_INPUT_IDX  4
-#define FDBK_CYCLES         60      ///this is an additional modulus on adc conversions, the flash
+#define FDBK_CYCLES         59      ///this is an additional modulus on adc conversions, the flash
 //this is the order
 //notice we preserve ARR_IDX_xxxx ordering
 //FEEDBACK_LEFT, FEEDBACK_BRAKE, FEEDBACK_RIGHT, FREQ_FLASH, NUM_FLASH
