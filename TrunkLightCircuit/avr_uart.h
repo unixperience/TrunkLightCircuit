@@ -104,7 +104,18 @@ void UART_ReceievBytes(char* ret_data,  uint8_t desired_len);
  */
 void UART_ReceiveByte(char* ret_data);
 
-/** This function will retrieve data from the uart rcv buffer. This will only have data
+#ifdef CIRCULAR_BUFFER
+/** This function will return one line of data form the receive buffer. Line endings
+ *  can be \r\n or \n or \r
+ *  If the buffer is completely full this command will dump ALL data (may contain
+ *  multiple lines) This will allow the buffer to save new messages
+ * @PARAM ret_data[output] all data in the rcv buffer. This buffer should be pre-initialized
+ *  to 0 and must be at least _UART_RX_BUFF_MAX_LEN bytes long
+ * @PARAM ret_data_len [out] the number of bytes returned.
+ */
+void UART_ReadLineRxBuff(char* ret_data, uint8_t* ret_data_len);
+#else
+/** This function will retrieve all data from the uart rcv buffer. This will only have data
  * if interrupts are enabled AND data has been received. It will return the data and
  * length to the calling program. 
  * this is a non-blocking function and will return immediately whether or not data exists
@@ -114,9 +125,6 @@ void UART_ReceiveByte(char* ret_data);
  * @PARAM ret_data_len [out] the number of bytes returned.
  */
 void UART_ReadRxBuff(char* ret_data, uint8_t* ret_data_len);
-
-#ifdef CIRCULAR_BUFFER
-void UART_ReadLineRxBuff(char* ret_data, uint8_t* ret_data_len);
 #endif // CIRCULAR_BUFFER
 
 /**  This function will convert a uint8_t value into a 3 digit

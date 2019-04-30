@@ -65,6 +65,10 @@ void adc_reset(void);
 void adc_enable_interrupt_on_conversion(void);
 void adc_disable_interrupt_on_conversion(void);
 
+/** enables free running mode of the ADC. 
+ *  @NOTE enabling the mdoe does not start the conversions. Conversions must
+ *  start using adc_start_conversion, from this point on they will occur continuously
+ */
 void adc_enableFreeRunningMode(void);
 void adc_disableFreeRunningMode(void);
 
@@ -97,6 +101,11 @@ void adc_left_shift_result(void);
     */
 void adc_right_shift_result(void);
 
+/** selects the adc reference voltage
+ *  @PARAM value the ADC reference to be used
+ *  @NOTE from datasheet: the first reading after changing reference may 
+ *  be accurate
+ */
 void adc_select_ref(eADCReference value);
 
 /** 
@@ -136,6 +145,7 @@ uint16_t adc_read10_value(void);
 
 /**
  Sets the prescaler bits for the ADC  
+ @PARAM value - the system clock prescaler to use for the ADC clock
  @RETURN n/a
  */
 void adc_set_prescale(eADCPrescaleValues value);

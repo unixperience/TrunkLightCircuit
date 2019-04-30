@@ -49,7 +49,6 @@ void init_adc(bool enable_interrupts)
     
     if (enable_interrupts)
     {
-        //aia.testadc_enableFreeRunningMode();
         adc_enable_interrupt_on_conversion();
     }    
     
